@@ -20,7 +20,10 @@ from sentence_transformers import SentenceTransformer
 # Model & Contract Configuration
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 VECTOR_DIM = 384
-MAX_CHUNK_TOKENS = 256
+# 256 model limit minus 2 special tokens ([CLS] and [SEP]) = 254 content tokens
+MAX_SEQ_LEN = 256
+SPECIAL_TOKENS_OVERHEAD = 2
+MAX_CHUNK_TOKENS = MAX_SEQ_LEN - SPECIAL_TOKENS_OVERHEAD  # 254
 MAX_TITLE_LEN = 128
 MAGIC_BYTES = b"MVE1"
 
@@ -67,9 +70,10 @@ def load_sample_plots():
 def encode_with_chunking(text, tokenizer, model):
     """
     Encodes plot text using Chunking with Mean Pooling:
-    - If tokens <= 256: encodes directly in a single pass.
-    - If tokens > 256: splits into 256-token non-overlapping windows,
-      encodes each window, and takes the element-wise mean vector.
+    - If content tokens <= 254: encodes directly in a single pass (254 + 2 special tokens <= 256).
+    - If content tokens > 254: splits into 254-token non-overlapping windows,
+      encodes each window (each with [CLS] and [SEP] <= 256 tokens), and takes
+      the element-wise mean vector across all chunks.
     """
     tokens = tokenizer.encode(text, add_special_tokens=False, truncation=False)
     if len(tokens) <= MAX_CHUNK_TOKENS:

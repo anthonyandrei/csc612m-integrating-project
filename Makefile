@@ -1,8 +1,21 @@
 CC ?= clang
 CFLAGS ?= -Wall -Wextra -pedantic -std=c11 -Iinclude -O2
 LDFLAGS ?= -lm
-PYTHON ?= .venv/bin/python
 
+# Cross-platform Python detection (Windows vs Unix/macOS)
+ifeq ($(OS),Windows_NT)
+    PYTHON ?= .venv/Scripts/python.exe
+    ifeq ($(wildcard $(PYTHON)),)
+        PYTHON = python
+    endif
+else
+    PYTHON ?= .venv/bin/python
+    ifeq ($(wildcard $(PYTHON)),)
+        PYTHON = python3
+    endif
+endif
+
+HEADERS = include/movie_contract.h include/movie_loader.h
 SRC = src/movie_loader.c
 TEST_SRC = tests/test_loader.c
 TEST_BIN = tests/test_loader
@@ -23,7 +36,8 @@ sample-data:
 test-loader: $(TEST_BIN)
 	./$(TEST_BIN)
 
-$(TEST_BIN): $(SRC) $(TEST_SRC)
+# Rebuild when source OR headers change (addresses review finding #4)
+$(TEST_BIN): $(SRC) $(TEST_SRC) $(HEADERS)
 	$(CC) $(CFLAGS) $(SRC) $(TEST_SRC) -o $(TEST_BIN) $(LDFLAGS)
 
 clean:

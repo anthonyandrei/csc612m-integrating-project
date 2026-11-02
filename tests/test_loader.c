@@ -18,6 +18,32 @@ static int g_tests_passed = 0;
     } \
 } while(0)
 
+/* Exact expected reference values for all 16 sample movies (Issue #2 AC 4 & Review Finding #3) */
+typedef struct {
+    uint64_t wiki_id;
+    const char* title;
+    float expected_v[4];
+} MovieReference;
+
+static const MovieReference EXPECTED_SAMPLE_MOVIES[16] = {
+    {30007,     "The Matrix",               {-0.070782f,  0.030554f, -0.104779f,  0.018619f}},
+    {23270459,  "Inception",                {-0.017669f,  0.006115f, -0.028679f,  0.023014f}},
+    {52371,     "Titanic",                  {-0.073466f,  0.010494f,  0.039379f,  0.044740f}},
+    {4273140,   "Avatar",                   {-0.079671f,  0.048819f,  0.049715f, -0.008998f}},
+    {54173,     "Pulp Fiction",             {-0.050226f, -0.008961f, -0.003963f, -0.003791f}},
+    {1009041,   "Fight Club",               {-0.103656f,  0.044157f, -0.020581f, -0.009116f}},
+    {41528,     "Forrest Gump",             {-0.095339f,  0.002661f,  0.026196f,  0.014134f}},
+    {2466773,   "The Godfather",            {-0.087629f,  0.059065f, -0.029840f, -0.012104f}},
+    {4276475,   "The Dark Knight",          {-0.056533f,  0.033469f, -0.050009f, -0.041906f}},
+    {68485,     "Jurassic Park",            {-0.037604f,  0.036865f,  0.026129f, -0.048649f}},
+    {3616797,   "Gladiator",                {-0.034567f,  0.054399f, -0.049119f, -0.048202f}},
+    {30625,     "The Shawshank Redemption", {-0.010503f,  0.028324f, -0.021817f, -0.029177f}},
+    {65834,     "Schindler's List",         {-0.015114f,  0.066368f, -0.072284f,  0.045404f}},
+    {64394,     "Goodfellas",               {-0.082697f,  0.019300f, -0.095911f,  0.003193f}},
+    {171005,    "Henry V",                  {-0.064986f,  0.036820f,  0.055128f, -0.027150f}},
+    {26067101,  "Siam Sunset",              { 0.031174f,  0.030418f,  0.036865f,  0.001416f}}
+};
+
 /* Helper to write test binaries */
 static void write_test_binary(const char* path, const char* magic, uint32_t num_movies, uint32_t dim, 
                               size_t metadata_records_to_write, size_t floats_to_write, float fill_val) {
@@ -49,7 +75,7 @@ static void write_test_binary(const char* path, const char* magic, uint32_t num_
     fclose(f);
 }
 
-/* Test 1: Load valid real-movie sample dataset */
+/* Test 1: Load valid real-movie sample dataset and assert IDs, titles, and exact vector coordinates */
 static int test_load_valid_sample(void) {
     g_tests_run++;
     printf("Running test_load_valid_sample...\n");
@@ -64,23 +90,23 @@ static int test_load_valid_sample(void) {
     TEST_ASSERT(corpus->titles != NULL, "titles array is NULL");
     TEST_ASSERT(corpus->vectors != NULL, "vectors array is NULL");
 
-    /* Verify 32-byte alignment for AVX2 */
+    /* Verify 32-byte alignment for AVX2 SIMD */
     uintptr_t addr = (uintptr_t)corpus->vectors;
     TEST_ASSERT((addr % 32) == 0, "Vectors buffer is not 32-byte aligned for AVX2!");
 
-    /* Verify first movie: The Matrix */
-    TEST_ASSERT(corpus->wiki_ids[0] == 30007, "Expected ID 30007 for movie 0");
-    TEST_ASSERT(strcmp(corpus->titles[0], "The Matrix") == 0, "Expected title 'The Matrix'");
+    /* Verify every movie's ID, title, and exact vector coordinates (Review Finding #3) */
+    for (uint32_t i = 0; i < corpus->num_movies; i++) {
+        TEST_ASSERT(corpus->wiki_ids[i] == EXPECTED_SAMPLE_MOVIES[i].wiki_id, "Movie ID mismatch");
+        TEST_ASSERT(strcmp(corpus->titles[i], EXPECTED_SAMPLE_MOVIES[i].title) == 0, "Movie title mismatch");
 
-    /* Verify second movie: Inception */
-    TEST_ASSERT(corpus->wiki_ids[1] == 23270459, "Expected ID 23270459 for movie 1");
-    TEST_ASSERT(strcmp(corpus->titles[1], "Inception") == 0, "Expected title 'Inception'");
+        const float* v = corpus->vectors + ((size_t)i * corpus->vector_dim);
+        for (int k = 0; k < 4; k++) {
+            float diff = fabsf(v[k] - EXPECTED_SAMPLE_MOVIES[i].expected_v[k]);
+            TEST_ASSERT(diff < 1e-4f, "Vector coordinate mismatch for movie!");
+        }
+    }
 
-    /* Verify third movie: Titanic */
-    TEST_ASSERT(corpus->wiki_ids[2] == 52371, "Expected ID 52371 for movie 2");
-    TEST_ASSERT(strcmp(corpus->titles[2], "Titanic") == 0, "Expected title 'Titanic'");
-
-    printf("\n  Successfully loaded %u movies (dim=%u, 32-byte AVX2 aligned):\n", 
+    printf("\n  Successfully loaded and verified %u movies (dim=%u, 32-byte AVX2 aligned):\n", 
            corpus->num_movies, corpus->vector_dim);
     printf("  -------------------------------------------------------------------------\n");
     printf("  %-4s | %-10s | %-26s | %-18s\n", "#", "Wiki ID", "Title", "First 3 Vector Dims");
@@ -237,6 +263,35 @@ static int test_empty_corpus(void) {
     return 1;
 }
 
+/* Test 9: Directly test detection of swapped vector rows (Review Finding #3) */
+static int test_swapped_vectors_detected(void) {
+    g_tests_run++;
+    printf("Running test_swapped_vectors_detected...\n");
+
+    /* Read valid sample and write a modified copy with Movie 0 and Movie 1 vectors swapped */
+    MovieCorpus* corpus = NULL;
+    CorpusStatus status = load_movie_corpus(SAMPLE_PATH, 384, &corpus);
+    TEST_ASSERT(status == CORPUS_OK, "Failed to load base sample");
+
+    /* Swap vector rows for movie 0 and movie 1 */
+    size_t dim = corpus->vector_dim;
+    float* tmp = (float*)malloc(dim * sizeof(float));
+    memcpy(tmp, corpus->vectors, dim * sizeof(float));
+    memcpy(corpus->vectors, corpus->vectors + dim, dim * sizeof(float));
+    memcpy(corpus->vectors + dim, tmp, dim * sizeof(float));
+    free(tmp);
+
+    /* Verify that checking Movie 0 against expected values now fails */
+    const float* v0 = corpus->vectors;
+    float diff0 = fabsf(v0[0] - EXPECTED_SAMPLE_MOVIES[0].expected_v[0]);
+    TEST_ASSERT(diff0 > 1e-4f, "Swapped vectors were NOT detected! Expected mismatch.");
+
+    free_movie_corpus(corpus);
+    g_tests_passed++;
+    printf("  [PASS] test_swapped_vectors_detected (Coordinate check successfully caught swapped vector rows)\n");
+    return 1;
+}
+
 int main(void) {
     printf("=========================================================\n");
     printf(" Movie Vector Loader & Input Contract Test Suite (Issue #2)\n");
@@ -250,6 +305,7 @@ int main(void) {
     if (!test_non_finite_values()) return 1;
     if (!test_zero_magnitude()) return 1;
     if (!test_empty_corpus()) return 1;
+    if (!test_swapped_vectors_detected()) return 1;
 
     printf("\n=========================================================\n");
     printf(" ALL TESTS PASSED: %d/%d assertions succeeded.\n", g_tests_passed, g_tests_run);
