@@ -22,6 +22,7 @@ SRC = src/movie_loader.c
 TEST_SRC = tests/test_loader.c
 TEST_BIN = tests/test_loader
 SEARCH_BIN = tests/movie_search
+# Keep the benchmark scalar even when optimization is enabled.
 SCALAR_FLAGS ?= -fno-vectorize -fno-slp-vectorize -ffp-contract=off
 
 .PHONY: all sample-data test test-loader profile-plots clean help

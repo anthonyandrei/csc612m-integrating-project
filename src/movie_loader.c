@@ -81,6 +81,7 @@ CorpusStatus load_movie_corpus(const char* filepath, uint32_t expected_dim, Movi
         return CORPUS_ERR_FILE_OPEN;
     }
 
+    /* Reject size arithmetic overflow before comparing the expected file size. */
     if ((size_t)header.vector_dim > (SIZE_MAX - sizeof(MovieMetadataRecord)) / sizeof(float) ||
         (size_t)header.num_movies > (SIZE_MAX - sizeof(MovieHeader)) /
             (sizeof(MovieMetadataRecord) + (size_t)header.vector_dim * sizeof(float))) {
@@ -137,6 +138,7 @@ CorpusStatus load_movie_corpus(const char* filepath, uint32_t expected_dim, Movi
         corpus->titles[i][MOVIE_CONTRACT_MAX_TITLE - 1] = '\0'; /* Ensure null-terminated */
     }
 
+    /* Sort a copy so duplicate detection preserves the original movie order. */
     uint64_t* sorted_ids = (uint64_t*)malloc(sizeof(uint64_t) * header.num_movies);
     if (!sorted_ids) {
         fclose(f);

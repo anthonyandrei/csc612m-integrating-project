@@ -80,12 +80,15 @@ int main(int argc, char** argv) {
         free(normalized); free(q); free(results); free_movie_corpus(corpus);
         return 1;
     }
+    /* Candidate normalization is a one-time cost outside the query timer. */
     double start = now_seconds();
     for (uint32_t i = 0; i < corpus->num_movies; i++) {
         if (i != query) normalize_movie(corpus->vectors + (size_t)i * dim, normalized + (size_t)i * dim, (uint32_t)dim);
     }
     double preparation = now_seconds() - start;
     double times[RUNS];
+    /* The first iteration warms up; measured iterations include query normalization,
+       scoring, and sorting, but exclude loading and printing. */
     for (int run = -1; run < RUNS; run++) {
         start = now_seconds();
         normalize_movie(corpus->vectors + (size_t)query * dim, q, (uint32_t)dim);

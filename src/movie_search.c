@@ -3,6 +3,7 @@
 #include <stdlib.h>
 
 void normalize_movie(const float* raw, float* normalized, uint32_t dim) {
+    /* Scaling before squaring avoids overflow for large finite components. */
     float scale = 0.0f, sum = 0.0f;
     for (uint32_t i = 0; i < dim; i++) {
         float value = fabsf(raw[i]);
