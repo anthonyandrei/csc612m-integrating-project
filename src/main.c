@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 #include "movie_loader.h"
 #include "movie_search.h"
 #include <errno.h>
@@ -19,7 +20,7 @@ static double now_seconds(void) {
     return (double)counter.QuadPart / (double)frequency.QuadPart;
 #else
     struct timespec ts;
-    timespec_get(&ts, TIME_UTC);
+    clock_gettime(CLOCK_MONOTONIC, &ts);
     return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
 #endif
 }
@@ -37,6 +38,16 @@ static int parse_positive(const char* text, uint64_t* value) {
     if (errno || *end || n == 0) return 0;
     *value = (uint64_t)n;
     return 1;
+}
+
+static void print_title(const char* title) {
+    for (; *title; title++) {
+        if (*title == '\\') fputs("\\\\", stdout);
+        else if (*title == '\t') fputs("\\t", stdout);
+        else if (*title == '\n') fputs("\\n", stdout);
+        else if (*title == '\r') fputs("\\r", stdout);
+        else putchar((unsigned char)*title);
+    }
 }
 
 int main(int argc, char** argv) {
@@ -94,7 +105,9 @@ int main(int argc, char** argv) {
     printf("movies=%u dimension=%u query=%" PRIu64 " K=%" PRIu64 " runs=%d warmups=1\n", corpus->num_movies, corpus->vector_dim, id, k, RUNS);
     printf("candidate_normalization_seconds=%.9f query_median_seconds=%.9f\n", preparation, (times[RUNS / 2 - 1] + times[RUNS / 2]) / 2.0);
     for (size_t i = 0; i < (size_t)k; i++) {
-        printf("result\t%" PRIu64 "\t%s\t%.9g\n", results[i].id, corpus->titles[results[i].index], results[i].score);
+        printf("result\t%" PRIu64 "\t", results[i].id);
+        print_title(corpus->titles[results[i].index]);
+        printf("\t%.9g\n", results[i].score);
     }
     free(normalized); free(q); free(results); free_movie_corpus(corpus);
     return 0;

@@ -81,7 +81,7 @@ tests\test_loader.exe
 
 ## Scalar search baseline
 
-The search accepts an MVE1 file, a Wikipedia movie ID, and K. K must be an integer from 1 through the number of movies minus one. The query must exist. The loader rejects the whole file for invalid vectors, zero dimensions, zero or duplicate IDs, or empty titles. Results exclude the query and are sorted by descending float32 score; exact ties use ascending movie ID.
+The search accepts an MVE1 file, a Wikipedia movie ID, and K. K must be an integer from 1 through the number of movies minus one. The query must exist. The loader rejects the whole file for invalid vectors, zero dimensions, zero or duplicate IDs, or empty titles. Results exclude the query and are sorted by descending float32 score; exact ties use ascending movie ID. Result lines are tab-separated; titles escape backslash, tab, carriage return, and newline as `\\`, `\t`, `\r`, and `\n`.
 
 On Windows x64 with a Visual Studio Developer Command Prompt (MSVC), build the release scalar baseline and checks:
 

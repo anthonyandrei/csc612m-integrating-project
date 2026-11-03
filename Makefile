@@ -1,4 +1,6 @@
-CC ?= clang
+ifeq ($(origin CC),default)
+    CC = clang
+endif
 CFLAGS ?= -Wall -Wextra -pedantic -std=c11 -Iinclude -O2
 LDFLAGS ?= -lm
 
