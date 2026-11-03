@@ -32,7 +32,8 @@ typedef enum {
     CORPUS_ERR_NON_FINITE_VALUE     = 5,
     CORPUS_ERR_ZERO_MAGNITUDE       = 6,
     CORPUS_ERR_ALLOCATION_FAILED    = 7,
-    CORPUS_ERR_EMPTY_CORPUS         = 8
+    CORPUS_ERR_EMPTY_CORPUS         = 8,
+    CORPUS_ERR_INVALID_METADATA      = 9
 } CorpusStatus;
 
 #pragma pack(push, 1)
@@ -94,6 +95,8 @@ static inline const char* corpus_status_to_string(CorpusStatus status) {
             return "Memory allocation failed";
         case CORPUS_ERR_EMPTY_CORPUS:
             return "Corpus contains zero movie records";
+        case CORPUS_ERR_INVALID_METADATA:
+            return "Movie IDs must be nonzero and unique, and titles must not be empty";
         default:
             return "Unknown corpus error";
     }

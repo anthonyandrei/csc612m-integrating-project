@@ -78,3 +78,22 @@ On Windows with MSVC:
 cl /W4 /O2 /Iinclude src\movie_loader.c tests\test_loader.c /Fe:tests\test_loader.exe
 tests\test_loader.exe
 ```
+
+## Scalar search baseline
+
+The search accepts an MVE1 file, a Wikipedia movie ID, and K. K must be an integer from 1 through the number of movies minus one. The query must exist. The loader rejects the whole file for invalid vectors, zero dimensions, zero or duplicate IDs, or empty titles. Results exclude the query and are sorted by descending float32 score; exact ties use ascending movie ID.
+
+On Windows x64 with a Visual Studio Developer Command Prompt (MSVC), build the release scalar baseline and checks:
+
+```cmd
+cl /std:c11 /W4 /O2 /Qvec- /fp:precise /Iinclude src\movie_loader.c src\movie_search.c src\main.c /Fe:tests\movie_search.exe
+cl /std:c11 /W4 /O2 /Iinclude src\movie_loader.c tests\test_loader.c /Fe:tests\test_loader.exe
+tests\test_loader.exe
+tests\movie_search.exe data\sample_movies.bin 30007 5
+```
+
+Record `cl` output to identify the compiler version for each benchmark. On the development machine, the alternate tested compiler was clang 17.0.6 targeting `x86_64-w64-windows-gnu` with `-O2 -fno-vectorize -fno-slp-vectorize -ffp-contract=off`. With clang and make installed, `make CC=clang` builds the program and `make CC=clang test` runs the loader checks. The sample is already included; it does not require Python packages or encoder inference to run.
+
+The executable prints the movie count, dimension, query ID, K, one warmup, 30 measured runs, candidate normalization time, and median query time in seconds. Candidate normalization is a one-time measurement. Each query includes normalization of the original query vector, scoring every other movie, and full sorting; loading and printing are outside the query timer. Record the CPU, operating system, compiler version, build command, and input file with any reported timings. Keep the input and query fixed across repetitions.
+
+The public `sort_movie_results` function preserves full-sort ranking for later comparisons using the same scores. Automated search correctness checks and an independent double-precision reference are not currently included.

@@ -17,7 +17,8 @@ extern "C" {
  * 4. Dimension match verification (if expected_dim > 0).
  * 5. Strict file size verification against computed byte size.
  * 6. Vector value validation: rejects non-finite floats (NaN, +Inf, -Inf).
- * 7. Zero-magnitude vector validation: rejects vectors with L2 norm < 1e-6.
+ * 7. Rejects zero dimensions, zero or duplicate IDs, and empty titles.
+ * 8. Zero-magnitude vector validation: rejects vectors with L2 norm < 1e-6.
  *
  * @param filepath      Path to the .bin file.
  * @param expected_dim  Expected vector dimension (e.g., 384), or 0 to accept any.
