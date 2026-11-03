@@ -32,6 +32,7 @@ static void aligned_free_32(void* ptr) {
 #endif
 }
 
+/* Order IDs for duplicate detection without subtraction overflow. */
 static int compare_ids(const void* a, const void* b) {
     uint64_t x = *(const uint64_t*)a, y = *(const uint64_t*)b;
     return (x > y) - (x < y);

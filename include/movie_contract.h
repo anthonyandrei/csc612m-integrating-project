@@ -33,7 +33,7 @@ typedef enum {
     CORPUS_ERR_ZERO_MAGNITUDE       = 6,
     CORPUS_ERR_ALLOCATION_FAILED    = 7,
     CORPUS_ERR_EMPTY_CORPUS         = 8,
-    CORPUS_ERR_INVALID_METADATA      = 9
+    CORPUS_ERR_INVALID_METADATA     = 9  /* Zero or duplicate ID, or empty title. */
 } CorpusStatus;
 
 #pragma pack(push, 1)

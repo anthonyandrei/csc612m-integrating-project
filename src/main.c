@@ -12,6 +12,7 @@
 
 #define RUNS 30
 
+/* Return monotonic elapsed-clock seconds; the origin is platform dependent. */
 static double now_seconds(void) {
 #ifdef _WIN32
     LARGE_INTEGER counter, frequency;
@@ -25,11 +26,13 @@ static double now_seconds(void) {
 #endif
 }
 
+/* Sort measured durations in ascending order for the median. */
 static int compare_double(const void* a, const void* b) {
     double x = *(const double*)a, y = *(const double*)b;
     return (x > y) - (x < y);
 }
 
+/* Parse a positive decimal integer, rejecting signs, overflow, and trailing text. */
 static int parse_positive(const char* text, uint64_t* value) {
     char* end;
     if (*text < '0' || *text > '9') return 0;
@@ -40,6 +43,7 @@ static int parse_positive(const char* text, uint64_t* value) {
     return 1;
 }
 
+/* Escape delimiters and backslashes in the tab-separated result format. */
 static void print_title(const char* title) {
     for (; *title; title++) {
         if (*title == '\\') fputs("\\\\", stdout);
@@ -50,6 +54,7 @@ static void print_title(const char* title) {
     }
 }
 
+/* Run a fixed-query benchmark and print its ordered top-K results. */
 int main(int argc, char** argv) {
     uint64_t id, k;
     MovieCorpus* corpus = NULL;

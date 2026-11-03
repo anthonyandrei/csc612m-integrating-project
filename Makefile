@@ -1,3 +1,4 @@
+# The scalar flags below target clang; still allow an explicit CC override.
 ifeq ($(origin CC),default)
     CC = clang
 endif
@@ -41,6 +42,7 @@ sample-data:
 test-loader: $(TEST_BIN)
 	./$(TEST_BIN)
 
+# Run the loader validation checks.
 test: test-loader
 
 $(SEARCH_BIN): $(SRC) src/movie_search.c src/main.c $(HEADERS)

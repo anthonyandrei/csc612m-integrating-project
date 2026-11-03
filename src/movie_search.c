@@ -17,6 +17,7 @@ void normalize_movie(const float* raw, float* normalized, uint32_t dim) {
     for (uint32_t i = 0; i < dim; i++) normalized[i] = (raw[i] / scale) / norm;
 }
 
+/* qsort comparator implementing the public ranking and tie rule. */
 static int compare_results(const void* a, const void* b) {
     const MovieResult* x = (const MovieResult*)a;
     const MovieResult* y = (const MovieResult*)b;
