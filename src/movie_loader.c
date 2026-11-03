@@ -148,6 +148,7 @@ CorpusStatus load_movie_corpus(const char* filepath, uint32_t expected_dim, Movi
     }
     memcpy(sorted_ids, corpus->wiki_ids, sizeof(uint64_t) * header.num_movies);
     qsort(sorted_ids, header.num_movies, sizeof(uint64_t), compare_ids);
+    /* Equal IDs become neighbors after sorting, without disturbing corpus indices. */
     for (uint32_t i = 1; i < header.num_movies; i++) {
         if (sorted_ids[i] == sorted_ids[i - 1]) {
             free(sorted_ids);

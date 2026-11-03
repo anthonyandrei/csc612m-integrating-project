@@ -71,6 +71,7 @@ static int write_fixture(const char* path, int variant) {
 
 int main(void) {
     char dir[80], fixture[100], output[100], command[300], line[512], title[128];
+    /* Same direction, tied scores ordered by ID, orthogonal, then opposite. */
     const int expected[] = {1, 3, 2, 5, 4};
     int passed = 0;
     FILE* file = NULL;

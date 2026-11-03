@@ -13,6 +13,7 @@ void normalize_movie(const float* raw, float* normalized, uint32_t dim) {
         float value = raw[i] / scale;
         sum += value * value;
     }
+    /* Dividing by the scaled length gives the same unit vector as the raw length. */
     float norm = sqrtf(sum);
     for (uint32_t i = 0; i < dim; i++) normalized[i] = (raw[i] / scale) / norm;
 }
@@ -23,6 +24,7 @@ static int compare_results(const void* a, const void* b) {
     const MovieResult* y = (const MovieResult*)b;
     if (x->score > y->score) return -1;
     if (x->score < y->score) return 1;
+    /* Exact ties use IDs so their order does not depend on qsort's stability. */
     return (x->id > y->id) - (x->id < y->id);
 }
 

@@ -71,6 +71,7 @@ int main(int argc, char** argv) {
     for (uint32_t i = 0; i < corpus->num_movies; i++) {
         if (corpus->wiki_ids[i] == id) query = i;
     }
+    /* The query itself cannot be a result, leaving at most N - 1 candidates. */
     if (query == corpus->num_movies || k >= corpus->num_movies) {
         fprintf(stderr, "Unknown query ID or K outside 1..N-1\n");
         free_movie_corpus(corpus);
@@ -100,6 +101,7 @@ int main(int argc, char** argv) {
         size_t count = 0;
         for (uint32_t i = 0; i < corpus->num_movies; i++) {
             if (i == query) continue;
+            /* The dot product of unit vectors is their cosine similarity. */
             float score = 0.0f;
             for (size_t d = 0; d < dim; d++) score += q[d] * normalized[(size_t)i * dim + d];
             results[count].id = corpus->wiki_ids[i];
@@ -109,6 +111,7 @@ int main(int argc, char** argv) {
         sort_movie_results(results, count);
         if (run >= 0) times[run] = now_seconds() - start;
     }
+    /* With 30 runs, the median is the average of the two middle durations. */
     qsort(times, RUNS, sizeof(double), compare_double);
     printf("movies=%u dimension=%u query=%" PRIu64 " K=%" PRIu64 " runs=%d warmups=1\n", corpus->num_movies, corpus->vector_dim, id, k, RUNS);
     printf("candidate_normalization_seconds=%.9f query_median_seconds=%.9f\n", preparation, (times[RUNS / 2 - 1] + times[RUNS / 2]) / 2.0);
