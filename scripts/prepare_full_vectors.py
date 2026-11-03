@@ -19,7 +19,6 @@ Usage:
 import csv
 import hashlib
 import json
-import struct
 import sys
 import time
 from pathlib import Path
@@ -33,49 +32,31 @@ except ImportError:
 sys.path.insert(0, str(Path(__file__).parent))
 try:
     from prepare_sample_vectors import (
-        encode_plot,
-        TARGET_DIM,
-        MAX_TOKENS,
-        LONG_PLOT_POLICY,
-        write_mve1_header,
-        write_metadata_record,
+        encode_with_chunking,
+        write_mve1_binary,
+        MODEL_NAME,
+        VECTOR_DIM,
+        MAX_CHUNK_TOKENS,
     )
-except ImportError:
-    print("Warning: Could not import helper functions from prepare_sample_vectors.py.")
-    print("Falling back to internal default contract implementations.")
-    
+    from transformers import AutoTokenizer
     from sentence_transformers import SentenceTransformer
     
-    # Fallback defaults
-    TARGET_DIM = 384
-    MAX_TOKENS = 256
+    TARGET_DIM = VECTOR_DIM
+    MAX_TOKENS = MAX_CHUNK_TOKENS
     LONG_PLOT_POLICY = "chunk_mean_pool"
-    _model = None
+    
+    # Initialize the tokenizer and model ONCE for the whole script
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+    model = SentenceTransformer(MODEL_NAME, device="cpu")
+    
+    def encode_plot(text):
+        return encode_with_chunking(text, tokenizer, model)
 
-    def encode_plot(plot_text: str) -> np.ndarray:
-        global _model
-        if _model is None:
-            _model = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
-        # Basic chunking fallback
-        tokens = plot_text.split()
-        chunks = [" ".join(tokens[i:i + MAX_TOKENS]) for i in range(0, len(tokens), MAX_TOKENS)]
-        embeddings = _model.encode(chunks)
-        mean_emb = np.mean(embeddings, axis=0)
-        # L2 Normalize
-        norm = np.linalg.norm(mean_emb)
-        if norm > 1e-12:
-            mean_emb = mean_emb / norm
-        return mean_emb.astype(np.float32)
-
-    def write_mve1_header(f, num_movies: int, dim: int):
-        magic = b"MVE1"
-        f.write(magic)
-        f.write(struct.pack("<II", num_movies, dim))
-
-    def write_metadata_record(f, wiki_id: int, title: str):
-        title_bytes = title.encode("utf-8")[:127]
-        f.write(struct.pack("<Q", wiki_id))
-        f.write(title_bytes.ljust(128, b"\x00"))
+except ImportError as e:
+    print("FATAL: Could not import required functions from prepare_sample_vectors.py.", file=sys.stderr)
+    print(f"Details: {e}", file=sys.stderr)
+    print("The full pipeline MUST use the exact same encoding path as the sample.", file=sys.stderr)
+    sys.exit(1)
 
 
 RAW_PLOTS    = Path("data/raw/MovieSummaries/plot_summaries.txt")
@@ -165,7 +146,9 @@ def main():
 
         # 5. Encode
         try:
-            vec = encode_plot(plot)
+            # encode_with_chunking returns a tuple; the first element is the vector
+            result = encode_plot(plot)
+            vec = result[0] if isinstance(result, tuple) else result
         except Exception as e:
             rejections.append((wiki_id, title, f"encode_error:{type(e).__name__}"))
             continue
@@ -185,14 +168,8 @@ def main():
 
     print(f"\nWriting {len(accepted)} accepted records to {OUT_BIN}...")
     
-    # Write binary in MVE1 format
-    with OUT_BIN.open("wb") as f:
-        write_mve1_header(f, len(accepted), TARGET_DIM)
-        for wiki_id, title, _ in accepted:
-            write_metadata_record(f, wiki_id, title)
-        for _, _, vec in accepted:
-            # Ensure little-endian float32
-            f.write(vec.astype("<f4").tobytes())
+    # 7. Write binary using the exact function from the sample script
+    write_mve1_binary(OUT_BIN, accepted, vector_dim=TARGET_DIM)
 
     # Write rejections CSV
     print(f"Writing {len(rejections)} rejected records to {OUT_REJ}...")
