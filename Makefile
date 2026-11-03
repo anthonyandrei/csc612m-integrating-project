@@ -23,10 +23,11 @@ SRC = src/movie_loader.c
 TEST_SRC = tests/test_loader.c
 TEST_BIN = tests/test_loader
 SEARCH_BIN = tests/movie_search
+SEARCH_TEST_BIN = tests/test_search
 # Keep the benchmark scalar even when optimization is enabled.
 SCALAR_FLAGS ?= -fno-vectorize -fno-slp-vectorize -ffp-contract=off
 
-.PHONY: all sample-data test test-loader profile-plots clean help
+.PHONY: all sample-data test test-loader test-search profile-plots clean help
 
 all: $(SEARCH_BIN)
 
@@ -42,8 +43,10 @@ sample-data:
 test-loader: $(TEST_BIN)
 	./$(TEST_BIN)
 
-# Run the loader validation checks.
-test: test-loader
+test: test-loader test-search
+
+test-search: $(SEARCH_BIN) $(SEARCH_TEST_BIN)
+	./$(SEARCH_TEST_BIN)
 
 $(SEARCH_BIN): $(SRC) src/movie_search.c src/main.c $(HEADERS)
 	$(CC) $(CFLAGS) $(SCALAR_FLAGS) $(SRC) src/movie_search.c src/main.c -o $(SEARCH_BIN) $(LDFLAGS)
@@ -52,12 +55,16 @@ $(SEARCH_BIN): $(SRC) src/movie_search.c src/main.c $(HEADERS)
 $(TEST_BIN): $(SRC) $(TEST_SRC) $(HEADERS)
 	$(CC) $(CFLAGS) $(SRC) $(TEST_SRC) -o $(TEST_BIN) $(LDFLAGS)
 
+$(SEARCH_TEST_BIN): tests/test_search.c include/movie_contract.h
+	$(CC) $(CFLAGS) tests/test_search.c -o $(SEARCH_TEST_BIN) $(LDFLAGS)
+
 clean:
-	rm -f $(TEST_BIN) $(SEARCH_BIN) $(TEST_BIN).exe $(SEARCH_BIN).exe *.o src/*.o tests/*.o data/temp_test_*.bin
+	rm -f $(TEST_BIN) $(SEARCH_BIN) $(SEARCH_TEST_BIN) $(TEST_BIN).exe $(SEARCH_BIN).exe $(SEARCH_TEST_BIN).exe *.o src/*.o tests/*.o data/temp_test_*.bin
 
 help:
 	@echo "Available make targets:"
-	@echo "  make test           - Run loader checks"
+	@echo "  make test           - Run loader and search checks"
+	@echo "  make test-search    - Run search correctness checks"
 	@echo "  make test-loader    - Compile and run the C loader validation suite"
 	@echo "  make sample-data    - Generate data/sample_movies.bin via Python offline script"
 	@echo "  make profile-plots  - Profile CMU plot lengths against Sentence-BERT limit"

@@ -88,12 +88,16 @@ On Windows x64 with a Visual Studio Developer Command Prompt (MSVC), build the r
 ```cmd
 cl /std:c11 /W4 /O2 /Qvec- /fp:precise /Iinclude src\movie_loader.c src\movie_search.c src\main.c /Fe:tests\movie_search.exe
 cl /std:c11 /W4 /O2 /Iinclude src\movie_loader.c tests\test_loader.c /Fe:tests\test_loader.exe
+cl /std:c11 /W4 /O2 /Iinclude tests\test_search.c /Fe:tests\test_search.exe
 tests\test_loader.exe
+tests\test_search.exe
 tests\movie_search.exe data\sample_movies.bin 30007 5
 ```
 
-Record `cl` output to identify the compiler version for each benchmark. On the development machine, the alternate tested compiler was clang 17.0.6 targeting `x86_64-w64-windows-gnu` with `-O2 -fno-vectorize -fno-slp-vectorize -ffp-contract=off`. With clang and make installed, `make CC=clang` builds the program and `make CC=clang test` runs the loader checks. The sample is already included; it does not require Python packages or encoder inference to run.
+Record `cl` output to identify the compiler version for each benchmark. On the development machine, the alternate tested compiler was clang 17.0.6 targeting `x86_64-w64-windows-gnu` with `-O2 -fno-vectorize -fno-slp-vectorize -ffp-contract=off`. With clang and make installed, `make CC=clang` builds the program and `make CC=clang test` runs the loader and search checks. The sample is already included; it does not require Python packages or encoder inference to run.
+
+MSVC 19.44.35229 reports that it ignores `/Qvec-`. The MSVC command has not been verified to disable automatic vectorization; use the clang scalar build for benchmark comparisons until an MSVC setting is verified.
 
 The executable prints the movie count, dimension, query ID, K, one warmup, 30 measured runs, candidate normalization time, and median query time in seconds. Candidate normalization is a one-time measurement. Each query includes normalization of the original query vector, scoring every other movie, and full sorting; loading and printing are outside the query timer. Record the CPU, operating system, compiler version, build command, and input file with any reported timings. Keep the input and query fixed across repetitions.
 
-The public `sort_movie_results` function preserves full-sort ranking for later comparisons using the same scores. Automated search correctness checks and an independent double-precision reference are not currently included.
+The public `sort_movie_results` function preserves full-sort ranking for later comparisons using the same scores. The search checks generate a small MVE1 corpus, run the executable, and compare scores against cosine similarity computed independently in double precision. The absolute tolerance is `1e-5` for these three-dimensional inputs; it is not a proven error bound for arbitrary dimensions. The checks cover query exclusion, result IDs and titles, descending ranking, exact ties, invalid K and query IDs, invalid vectors and metadata, and large finite components. A failed check returns a nonzero exit status. Run them from the repository root with `make test-search` or the MSVC commands above.
