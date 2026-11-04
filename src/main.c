@@ -128,7 +128,7 @@ int main(int argc, char** argv) {
         }
     }
     QueryPerformanceCounter(&end);
-    double preparation_seconds = (double)(end.QuadPart - start.QuadPart) / frequency.QuadPart;
+    double preparation_ms = (double)(end.QuadPart - start.QuadPart) * 1000.0 / frequency.QuadPart;
     double run_times[RUNS];
     /* The first iteration warms up; measured iterations include query normalization,
        scoring, and sorting, but exclude loading and printing. */
@@ -152,13 +152,13 @@ int main(int argc, char** argv) {
         sort_movie_results(results, count);
         QueryPerformanceCounter(&end);
         if (run >= 0)
-            run_times[run] = (double)(end.QuadPart - start.QuadPart) / frequency.QuadPart;
+            run_times[run] = (double)(end.QuadPart - start.QuadPart) * 1000.0 / frequency.QuadPart;
     }
     /* With 30 runs, the median is the average of the two middle durations. */
     qsort(run_times, RUNS, sizeof(double), compare_double);
-    double median_seconds = (run_times[RUNS / 2 - 1] + run_times[RUNS / 2]) / 2.0;
+    double median_ms = (run_times[RUNS / 2 - 1] + run_times[RUNS / 2]) / 2.0;
     printf("movies=%u dimension=%u query=%" PRIu64 " K=%" PRIu64 " runs=%d warmups=1\n", corpus->num_movies, corpus->vector_dim, id, k, RUNS);
-    printf("candidate_normalization_seconds=%.9f query_median_seconds=%.9f\n", preparation_seconds, median_seconds);
+    printf("candidate_normalization_ms=%.6f query_median_ms=%.6f\n", preparation_ms, median_ms);
     for (size_t i = 0; i < (size_t)k; i++) {
         printf("result\t%" PRIu64 "\t", results[i].id);
         const char* title = corpus->titles[results[i].index];

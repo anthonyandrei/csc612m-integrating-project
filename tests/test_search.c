@@ -119,7 +119,7 @@ int main(void) {
     CHECK(fgets(line, sizeof(line), file) != NULL);
     CHECK(fgets(line, sizeof(line), file) != NULL);
     double preparation, median;
-    CHECK(sscanf(line, "candidate_normalization_seconds=%lf query_median_seconds=%lf", &preparation, &median) == 2);
+    CHECK(sscanf(line, "candidate_normalization_ms=%lf query_median_ms=%lf", &preparation, &median) == 2);
     CHECK(isfinite(preparation) && preparation >= 0 && isfinite(median) && median >= 0);
     for (int i = 0; i < 5; i++) {
         unsigned long long id;
