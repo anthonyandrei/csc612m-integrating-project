@@ -1,0 +1,14 @@
+/tests/movie_search
+/tests/movie_search.exe
+/tests/test_loader
+/tests/test_loader.exe
+/tests/test_search
+/tests/test_search.exe
+/tests/search_check_*/
+*.obj
+/.venv/
+/data/raw/
+/data/temp_test_*.bin
+__pycache__/
+*.pyc
+*.o

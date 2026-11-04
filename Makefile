@@ -1,4 +1,7 @@
-CC ?= clang
+# The scalar flags below target clang; still allow an explicit CC override.
+ifeq ($(origin CC),default)
+    CC = clang
+endif
 CFLAGS ?= -Wall -Wextra -pedantic -std=c11 -Iinclude -O2
 LDFLAGS ?= -lm
 
@@ -15,18 +18,22 @@ else
     endif
 endif
 
-HEADERS = include/movie_contract.h include/movie_loader.h
+HEADERS = include/movie_contract.h include/movie_loader.h include/movie_search.h
 SRC = src/movie_loader.c
 TEST_SRC = tests/test_loader.c
 TEST_BIN = tests/test_loader
+SEARCH_BIN = tests/movie_search
+SEARCH_TEST_BIN = tests/test_search
+# Keep the benchmark scalar even when optimization is enabled.
+SCALAR_FLAGS ?= -fno-vectorize -fno-slp-vectorize -ffp-contract=off
 
 VERIFY_SRC = src/verify_corpus.c
 VERIFY_BIN = verify_corpus
 
-.PHONY: all sample-data test-loader profile-plots \
-        verify_corpus prepare-full verify-full full-demo clean help
+.PHONY: all sample-data test test-loader test-search profile-plots \
+        prepare-full verify-full full-demo clean help
 
-all: test-loader
+all: $(SEARCH_BIN)
 
 # Step 1 & 2: Profile plot lengths across full CMU corpus
 profile-plots:
@@ -40,17 +47,26 @@ sample-data:
 test-loader: $(TEST_BIN)
 	./$(TEST_BIN)
 
+test: test-loader test-search
+
+test-search: $(SEARCH_BIN) $(SEARCH_TEST_BIN)
+	./$(SEARCH_TEST_BIN)
+
+$(SEARCH_BIN): $(SRC) src/movie_search.c src/main.c $(HEADERS)
+	$(CC) $(CFLAGS) $(SCALAR_FLAGS) $(SRC) src/movie_search.c src/main.c -o $(SEARCH_BIN) $(LDFLAGS)
+
 # Rebuild when source OR headers change (addresses review finding #4)
 $(TEST_BIN): $(SRC) $(TEST_SRC) $(HEADERS)
 	$(CC) $(CFLAGS) $(SRC) $(TEST_SRC) -o $(TEST_BIN) $(LDFLAGS)
+
+$(SEARCH_TEST_BIN): tests/test_search.c include/movie_contract.h
+	$(CC) $(CFLAGS) tests/test_search.c -o $(SEARCH_TEST_BIN) $(LDFLAGS)
 
 # Full-Corpus Additions
 
 # Compile the C cross-validator
 $(VERIFY_BIN): $(VERIFY_SRC) $(SRC) $(HEADERS)
 	$(CC) $(CFLAGS) $(VERIFY_SRC) $(SRC) -o $(VERIFY_BIN) $(LDFLAGS)
-
-verify_corpus: $(VERIFY_BIN)
 
 # Generate the full binary, manifest, and rejection report
 prepare-full:
@@ -69,10 +85,12 @@ full-demo: prepare-full verify-full
 # End of Full-Corpus Additions
 
 clean:
-	rm -f $(TEST_BIN) $(VERIFY_BIN) *.o src/*.o tests/*.o data/temp_test_*.bin
+	rm -f $(TEST_BIN) $(SEARCH_BIN) $(SEARCH_TEST_BIN) $(VERIFY_BIN) $(TEST_BIN).exe $(SEARCH_BIN).exe $(SEARCH_TEST_BIN).exe $(VERIFY_BIN).exe *.o src/*.o tests/*.o data/temp_test_*.bin
 
 help:
 	@echo "Available make targets:"
+	@echo "  make test           - Run loader and search checks"
+	@echo "  make test-search    - Run search correctness checks"
 	@echo "  make test-loader    - Compile and run the C loader validation suite"
 	@echo "  make sample-data    - Generate data/sample_movies.bin via Python offline script"
 	@echo "  make profile-plots  - Profile CMU plot lengths against Sentence-BERT limit"

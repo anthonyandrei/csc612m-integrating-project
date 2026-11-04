@@ -32,6 +32,22 @@ static void aligned_free_32(void* ptr) {
 #endif
 }
 
+/**
+ * Compares IDs for duplicate detection without subtraction overflow.
+ * @param a Pointer to the first uint64_t ID.
+ * @param b Pointer to the second uint64_t ID.
+ * @return A negative, zero, or positive value according to their order.
+ */
+static int compare_ids(const void* a, const void* b) {
+    uint64_t x = *(const uint64_t*)a;
+    uint64_t y = *(const uint64_t*)b;
+    if (x < y)
+        return -1;
+    if (x > y)
+        return 1;
+    return 0;
+}
+
 CorpusStatus load_movie_corpus(const char* filepath, uint32_t expected_dim, MovieCorpus** out_corpus) {
     if (!filepath || !out_corpus) {
         return CORPUS_ERR_FILE_OPEN;
@@ -60,7 +76,7 @@ CorpusStatus load_movie_corpus(const char* filepath, uint32_t expected_dim, Movi
         return CORPUS_ERR_EMPTY_CORPUS;
     }
 
-    if (expected_dim > 0 && header.vector_dim != expected_dim) {
+    if (header.vector_dim == 0 || (expected_dim > 0 && header.vector_dim != expected_dim)) {
         fclose(f);
         return CORPUS_ERR_DIMENSION_MISMATCH;
     }
@@ -76,6 +92,13 @@ CorpusStatus load_movie_corpus(const char* filepath, uint32_t expected_dim, Movi
         return CORPUS_ERR_FILE_OPEN;
     }
 
+    /* Reject size arithmetic overflow before comparing the expected file size. */
+    if ((size_t)header.vector_dim > (SIZE_MAX - sizeof(MovieMetadataRecord)) / sizeof(float) ||
+        (size_t)header.num_movies > (SIZE_MAX - sizeof(MovieHeader)) /
+            (sizeof(MovieMetadataRecord) + (size_t)header.vector_dim * sizeof(float))) {
+        fclose(f);
+        return CORPUS_ERR_FILE_SIZE_MISMATCH;
+    }
     size_t expected_size = corpus_expected_file_size(header.num_movies, header.vector_dim);
     if ((size_t)actual_file_size != expected_size) {
         fclose(f);
@@ -116,10 +139,35 @@ CorpusStatus load_movie_corpus(const char* filepath, uint32_t expected_dim, Movi
             free_movie_corpus(corpus);
             return CORPUS_ERR_FILE_SIZE_MISMATCH;
         }
+        if (rec.wiki_id == 0 || rec.title[0] == '\0') {
+            fclose(f);
+            free_movie_corpus(corpus);
+            return CORPUS_ERR_INVALID_METADATA;
+        }
         corpus->wiki_ids[i] = rec.wiki_id;
         memcpy(corpus->titles[i], rec.title, MOVIE_CONTRACT_MAX_TITLE);
         corpus->titles[i][MOVIE_CONTRACT_MAX_TITLE - 1] = '\0'; /* Ensure null-terminated */
     }
+
+    /* Sort a copy so duplicate detection preserves the original movie order. */
+    uint64_t* sorted_ids = (uint64_t*)malloc(sizeof(uint64_t) * header.num_movies);
+    if (!sorted_ids) {
+        fclose(f);
+        free_movie_corpus(corpus);
+        return CORPUS_ERR_ALLOCATION_FAILED;
+    }
+    memcpy(sorted_ids, corpus->wiki_ids, sizeof(uint64_t) * header.num_movies);
+    qsort(sorted_ids, header.num_movies, sizeof(uint64_t), compare_ids);
+    /* Equal IDs become neighbors after sorting, without disturbing corpus indices. */
+    for (uint32_t i = 1; i < header.num_movies; i++) {
+        if (sorted_ids[i] == sorted_ids[i - 1]) {
+            free(sorted_ids);
+            fclose(f);
+            free_movie_corpus(corpus);
+            return CORPUS_ERR_INVALID_METADATA;
+        }
+    }
+    free(sorted_ids);
 
     /* 5. Read vector buffer */
     if (fread(corpus->vectors, sizeof(float), total_floats, f) != total_floats) {
