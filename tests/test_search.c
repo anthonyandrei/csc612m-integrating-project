@@ -1,3 +1,6 @@
+/** @file
+ * @brief End-to-end checks for scalar movie search and input validation.
+ */
 #include "movie_contract.h"
 #include <float.h>
 #include <math.h>
@@ -22,9 +25,12 @@
 
 /* Scores in this small, three-dimensional fixture must agree within 1e-5. */
 #define SCORE_TOLERANCE 1e-5
-#define CHECK(condition) do { if (!(condition)) { \
-    fprintf(stderr, "FAIL at line %d: %s\n", __LINE__, #condition); goto cleanup; \
-} } while (0)
+#define CHECK(condition) do { \
+    if (!(condition)) { \
+        fprintf(stderr, "FAIL at line %d: %s\n", __LINE__, #condition); \
+        goto cleanup; \
+    } \
+} while (0)
 
 static const uint64_t ids[] = {50, 30, 40, 10, 20, 60};
 static const char* titles[] = {"Query", "Same", "Tie high", "Tie low", "Opposite", "Orthogonal"};
@@ -32,7 +38,12 @@ static const float vectors[][3] = {
     {3, 4, 0}, {6, 8, 0}, {0, 2, 0}, {0, 1, 0}, {-3, -4, 0}, {4, -3, 0}
 };
 
-/* This reference computes cosine directly in double, independently of normalization in C. */
+/**
+ * Computes a reference cosine directly in double precision.
+ * @param a First three-dimensional vector.
+ * @param b Second three-dimensional vector.
+ * @return Cosine similarity of the nonzero input vectors.
+ */
 static double reference_score(const float* a, const float* b) {
     double dot = 0, aa = 0, bb = 0;
     for (int i = 0; i < 3; i++) {
@@ -43,32 +54,50 @@ static double reference_score(const float* a, const float* b) {
     return dot / (sqrt(aa) * sqrt(bb));
 }
 
+/**
+ * Writes a search fixture, optionally changing one field or vector.
+ * @param path Destination binary file.
+ * @param variant 0 for valid data; 1 through 9 select the test variants below.
+ * @return 1 if all writes and the close succeed, otherwise 0.
+ */
 static int write_fixture(const char* path, int variant) {
     MovieHeader header = {{'M', 'V', 'E', '1'}, variant == 1 ? 1 : 6, variant == 2 ? 0 : 3};
     FILE* file = fopen(path, "wb");
-    if (!file) return 0;
+    if (!file)
+        return 0;
     int ok = fwrite(&header, sizeof(header), 1, file) == 1;
     for (uint32_t i = 0; i < header.num_movies; i++) {
         MovieMetadataRecord record = {ids[i], ""};
-        if (variant == 3 && i == 1) record.wiki_id = ids[0];
-        if (variant == 4 && i == 1) record.wiki_id = 0;
-        if (variant != 5 || i != 1) strcpy(record.title, titles[i]);
+        if (variant == 3 && i == 1)
+            record.wiki_id = ids[0];
+        if (variant == 4 && i == 1)
+            record.wiki_id = 0;
+        if (variant != 5 || i != 1)
+            strcpy(record.title, titles[i]);
         ok &= fwrite(&record, sizeof(record), 1, file) == 1;
     }
     if (header.vector_dim) {
         for (uint32_t i = 0; i < header.num_movies; i++) {
             float v[3];
             memcpy(v, vectors[i], sizeof(v));
-            if (variant == 6 && i == 1) v[0] = v[1] = v[2] = 0;
-            if (variant == 7 && i == 1) v[0] = NAN;
-            if (variant == 8 && i == 1) v[0] = INFINITY;
-            if (variant == 9 && i == 1) v[0] = v[1] = FLT_MAX;
+            if (variant == 6 && i == 1)
+                v[0] = v[1] = v[2] = 0;
+            if (variant == 7 && i == 1)
+                v[0] = NAN;
+            if (variant == 8 && i == 1)
+                v[0] = INFINITY;
+            if (variant == 9 && i == 1)
+                v[0] = v[1] = FLT_MAX;
             ok &= fwrite(v, sizeof(v), 1, file) == 1;
         }
     }
     return fclose(file) == 0 && ok;
 }
 
+/**
+ * Checks ranking, scores, argument validation, and corpus validation.
+ * @return 0 if all checks pass, otherwise 1.
+ */
 int main(void) {
     char dir[80], fixture[100], output[100], command[300], line[512], title[128];
     /* Same direction, tied scores ordered by ID, orthogonal, then opposite. */
@@ -89,6 +118,9 @@ int main(void) {
     CHECK(file != NULL);
     CHECK(fgets(line, sizeof(line), file) != NULL);
     CHECK(fgets(line, sizeof(line), file) != NULL);
+    double preparation, median;
+    CHECK(sscanf(line, "candidate_normalization_seconds=%lf query_median_seconds=%lf", &preparation, &median) == 2);
+    CHECK(isfinite(preparation) && preparation >= 0 && isfinite(median) && median >= 0);
     for (int i = 0; i < 5; i++) {
         unsigned long long id;
         double score;
@@ -156,10 +188,12 @@ int main(void) {
     CHECK(found == 1);
     passed = 1;
 cleanup:
-    if (file) fclose(file);
+    if (file)
+        fclose(file);
     remove(fixture);
     remove(output);
     remove_dir(dir);
-    if (passed) puts("Search correctness checks passed.");
+    if (passed)
+        puts("Search correctness checks passed.");
     return passed ? 0 : 1;
 }

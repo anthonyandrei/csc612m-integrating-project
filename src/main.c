@@ -1,60 +1,80 @@
-#define _POSIX_C_SOURCE 200809L
+/** @file
+ * @brief Command-line scalar movie search and timing benchmark.
+ */
 #include "movie_loader.h"
 #include "movie_search.h"
 #include <errno.h>
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
-#ifdef _WIN32
 #include <windows.h>
-#endif
 
+/** Number of timed searches after the warmup. */
 #define RUNS 30
 
-/* Return monotonic elapsed-clock seconds; the origin is platform dependent. */
-static double now_seconds(void) {
-#ifdef _WIN32
-    LARGE_INTEGER counter, frequency;
-    QueryPerformanceCounter(&counter);
-    QueryPerformanceFrequency(&frequency);
-    return (double)counter.QuadPart / (double)frequency.QuadPart;
-#else
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
-#endif
-}
-
-/* Sort measured durations in ascending order for the median. */
+/**
+ * Compares two durations for ascending qsort order.
+ * @param a Pointer to the first double.
+ * @param b Pointer to the second double.
+ * @return A negative, zero, or positive value according to their order.
+ */
 static int compare_double(const void* a, const void* b) {
-    double x = *(const double*)a, y = *(const double*)b;
-    return (x > y) - (x < y);
+    double x = *(const double*)a;
+    double y = *(const double*)b;
+    if (x < y)
+        return -1;
+    if (x > y)
+        return 1;
+    return 0;
 }
 
-/* Parse a positive decimal integer, rejecting signs, overflow, and trailing text. */
+/**
+ * Parses a positive decimal integer without signs or trailing text.
+ * @param text Null-terminated input string.
+ * @param value Receives the parsed value on success.
+ * @return 1 on success, or 0 for invalid input or overflow.
+ */
 static int parse_positive(const char* text, uint64_t* value) {
     char* end;
-    if (*text < '0' || *text > '9') return 0;
+    if (*text < '0' || *text > '9')
+        return 0;
     errno = 0;
     unsigned long long n = strtoull(text, &end, 10);
-    if (errno || *end || n == 0) return 0;
+    if (errno || *end || n == 0)
+        return 0;
     *value = (uint64_t)n;
     return 1;
 }
 
-/* Escape delimiters and backslashes in the tab-separated result format. */
+/**
+ * Prints a title with backslashes and control delimiters escaped.
+ * @param title Null-terminated title to print to standard output.
+ */
 static void print_title(const char* title) {
     for (; *title; title++) {
-        if (*title == '\\') fputs("\\\\", stdout);
-        else if (*title == '\t') fputs("\\t", stdout);
-        else if (*title == '\n') fputs("\\n", stdout);
-        else if (*title == '\r') fputs("\\r", stdout);
-        else putchar((unsigned char)*title);
+        if (*title == '\\')
+            fputs("\\\\", stdout);
+        else if (*title == '\t')
+            fputs("\\t", stdout);
+        else if (*title == '\n')
+            fputs("\\n", stdout);
+        else if (*title == '\r')
+            fputs("\\r", stdout);
+        else
+            putchar((unsigned char)*title);
     }
 }
 
-/* Run a fixed-query benchmark and print its ordered top-K results. */
+/**
+ * Runs a fixed-query benchmark and prints its ordered top-K results.
+ *
+ * Arguments are the corpus path, query movie ID, and number of results.
+ * One warmup precedes RUNS measured searches; loading and printing are excluded
+ * from query timing. Candidate normalization is timed separately.
+ * @param argc Argument count, including the program name; must be 4.
+ * @param argv Argument strings: program name, corpus path, query ID, and K.
+ * @return 0 on success, or 1 for invalid input or an allocation failure.
+ */
 int main(int argc, char** argv) {
     uint64_t id, k;
     MovieCorpus* corpus = NULL;
@@ -69,7 +89,8 @@ int main(int argc, char** argv) {
     }
     uint32_t query = corpus->num_movies;
     for (uint32_t i = 0; i < corpus->num_movies; i++) {
-        if (corpus->wiki_ids[i] == id) query = i;
+        if (corpus->wiki_ids[i] == id)
+            query = i;
     }
     /* The query itself cannot be a result, leaving at most N - 1 candidates. */
     if (query == corpus->num_movies || k >= corpus->num_movies) {
@@ -77,49 +98,76 @@ int main(int argc, char** argv) {
         free_movie_corpus(corpus);
         return 1;
     }
-    size_t dim = corpus->vector_dim;
-    float* normalized = (float*)malloc((size_t)corpus->num_movies * dim * sizeof(float));
-    float* q = (float*)malloc(dim * sizeof(float));
-    MovieResult* results = (MovieResult*)malloc((size_t)(corpus->num_movies - 1) * sizeof(MovieResult));
-    if (!normalized || !q || !results) {
+    uint32_t vector_dim = corpus->vector_dim;
+    float* normalized_vectors = (float*)malloc(
+        (size_t)corpus->num_movies * vector_dim * sizeof(float)
+    );
+    float* normalized_query = (float*)malloc(
+        vector_dim * sizeof(float)
+    );
+    MovieResult* results = (MovieResult*)malloc(
+        (size_t)(corpus->num_movies - 1) * sizeof(MovieResult)
+    );
+    if (!normalized_vectors || !normalized_query || !results) {
         fprintf(stderr, "Allocation failed\n");
-        free(normalized); free(q); free(results); free_movie_corpus(corpus);
+        free(normalized_vectors);
+        free(normalized_query);
+        free(results);
+        free_movie_corpus(corpus);
         return 1;
     }
     /* Candidate normalization is a one-time cost outside the query timer. */
-    double start = now_seconds();
+    LARGE_INTEGER frequency, start, end;
+    QueryPerformanceFrequency(&frequency);
+    QueryPerformanceCounter(&start);
     for (uint32_t i = 0; i < corpus->num_movies; i++) {
-        if (i != query) normalize_movie(corpus->vectors + (size_t)i * dim, normalized + (size_t)i * dim, (uint32_t)dim);
+        if (i != query) {
+            const float* original_vector = corpus->vectors + (size_t)i * vector_dim;
+            float* normalized_vector = normalized_vectors + (size_t)i * vector_dim;
+            normalize_movie(original_vector, normalized_vector, vector_dim);
+        }
     }
-    double preparation = now_seconds() - start;
-    double times[RUNS];
+    QueryPerformanceCounter(&end);
+    double preparation_seconds = (double)(end.QuadPart - start.QuadPart) / frequency.QuadPart;
+    double run_times[RUNS];
     /* The first iteration warms up; measured iterations include query normalization,
        scoring, and sorting, but exclude loading and printing. */
     for (int run = -1; run < RUNS; run++) {
-        start = now_seconds();
-        normalize_movie(corpus->vectors + (size_t)query * dim, q, (uint32_t)dim);
+        QueryPerformanceCounter(&start);
+        const float* query_vector = corpus->vectors + (size_t)query * vector_dim;
+        normalize_movie(query_vector, normalized_query, vector_dim);
         size_t count = 0;
         for (uint32_t i = 0; i < corpus->num_movies; i++) {
-            if (i == query) continue;
+            if (i == query)
+                continue;
             /* The dot product of unit vectors is their cosine similarity. */
             float score = 0.0f;
-            for (size_t d = 0; d < dim; d++) score += q[d] * normalized[(size_t)i * dim + d];
+            for (size_t d = 0; d < vector_dim; d++) {
+                score += normalized_query[d] * normalized_vectors[(size_t)i * vector_dim + d];
+            }
             results[count].id = corpus->wiki_ids[i];
             results[count].index = i;
             results[count++].score = score;
         }
         sort_movie_results(results, count);
-        if (run >= 0) times[run] = now_seconds() - start;
+        QueryPerformanceCounter(&end);
+        if (run >= 0)
+            run_times[run] = (double)(end.QuadPart - start.QuadPart) / frequency.QuadPart;
     }
     /* With 30 runs, the median is the average of the two middle durations. */
-    qsort(times, RUNS, sizeof(double), compare_double);
+    qsort(run_times, RUNS, sizeof(double), compare_double);
+    double median_seconds = (run_times[RUNS / 2 - 1] + run_times[RUNS / 2]) / 2.0;
     printf("movies=%u dimension=%u query=%" PRIu64 " K=%" PRIu64 " runs=%d warmups=1\n", corpus->num_movies, corpus->vector_dim, id, k, RUNS);
-    printf("candidate_normalization_seconds=%.9f query_median_seconds=%.9f\n", preparation, (times[RUNS / 2 - 1] + times[RUNS / 2]) / 2.0);
+    printf("candidate_normalization_seconds=%.9f query_median_seconds=%.9f\n", preparation_seconds, median_seconds);
     for (size_t i = 0; i < (size_t)k; i++) {
         printf("result\t%" PRIu64 "\t", results[i].id);
-        print_title(corpus->titles[results[i].index]);
+        const char* title = corpus->titles[results[i].index];
+        print_title(title);
         printf("\t%.9g\n", results[i].score);
     }
-    free(normalized); free(q); free(results); free_movie_corpus(corpus);
+    free(normalized_vectors);
+    free(normalized_query);
+    free(results);
+    free_movie_corpus(corpus);
     return 0;
 }

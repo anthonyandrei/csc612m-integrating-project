@@ -32,10 +32,20 @@ static void aligned_free_32(void* ptr) {
 #endif
 }
 
-/* Order IDs for duplicate detection without subtraction overflow. */
+/**
+ * Compares IDs for duplicate detection without subtraction overflow.
+ * @param a Pointer to the first uint64_t ID.
+ * @param b Pointer to the second uint64_t ID.
+ * @return A negative, zero, or positive value according to their order.
+ */
 static int compare_ids(const void* a, const void* b) {
-    uint64_t x = *(const uint64_t*)a, y = *(const uint64_t*)b;
-    return (x > y) - (x < y);
+    uint64_t x = *(const uint64_t*)a;
+    uint64_t y = *(const uint64_t*)b;
+    if (x < y)
+        return -1;
+    if (x > y)
+        return 1;
+    return 0;
 }
 
 CorpusStatus load_movie_corpus(const char* filepath, uint32_t expected_dim, MovieCorpus** out_corpus) {
