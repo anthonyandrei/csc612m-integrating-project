@@ -116,6 +116,40 @@ MSVC 19.44.35229 reports that it ignores `/Qvec-`. The MSVC command has not been
 The executable prints the movie count, dimension, query ID, K, one warmup, 30 measured runs, candidate normalization time, and median query time in milliseconds. Candidate normalization is a one-time measurement. Each query includes normalization of the original query vector, scoring every other movie, and full sorting; loading and printing are outside the query timer. Record the CPU, operating system, compiler version, build command, and input file with any reported timings. Keep the input and query fixed across repetitions.
 
 The public `sort_movie_results` function preserves full-sort ranking for later comparisons using the same scores. The search checks generate a small MVE1 corpus, run the executable, and compare scores against cosine similarity computed independently in double precision. The absolute tolerance is `1e-5` for these three-dimensional inputs; it is not a proven error bound for arbitrary dimensions. The checks cover query exclusion, result IDs and titles, descending ranking, exact ties, invalid K and query IDs, invalid vectors and metadata, and large finite components. A failed check returns a nonzero exit status. Run them from the repository root with `make test-search` or the MSVC commands above.
+## Single-thread SIMD scoring (Issue #5)
+
+The search engine includes a single-thread 256-bit AVX2 SIMD dot-product scorer implemented in x64 NASM assembly (`src/dot_simd_x64.asm`) without C intrinsics. It operates over the same C-normalized candidate vectors, preserving identical ranking order, query exclusion, and tie-breaking by ascending Wikipedia ID.
+
+### Features & Verification
+- **Target Vector Diagnostics**: Verifies CPUID (Leaf 1 `AVX`/`OSXSAVE`, Leaf 7 `AVX2`) and operating-system 256-bit YMM state preservation via `XGETBV` (or `IsProcessorFeaturePresent` on Windows).
+- **Vector & Remainder Processing**: Unrolls 8 single-precision floats (256 bits) per AVX2 loop iteration, reduces across 256 bits horizontally (`vextractf128` + `vhaddps`), and handles arbitrary vector lengths and leftovers ($dim \pmod 8 \neq 0$) with a scalar tail loop.
+- **Numerical Reference**: Scores agree with an independent double-precision reference within $10^{-5}$ tolerance.
+- **Execution Modes**: The executable accepts an optional 4th argument: `scalar`, `simd`, or `both` (default is `both` for side-by-side benchmark timing).
+
+### Building and Running on Windows x64 (MSVC & NASM)
+
+In a Visual Studio Developer Command Prompt:
+
+```cmd
+nasm -f win64 src\dot_simd_x64.asm -o src\dot_simd_x64.obj
+cl /std:c11 /W4 /O2 /Iinclude src\simd_support.c tests\test_simd_support.c /Fe:tests\test_simd_support.exe
+cl /std:c11 /W4 /O2 /Iinclude src\movie_loader.c src\movie_search.c src\simd_support.c src\dot_simd_x64.obj tests\test_simd.c /Fe:tests\test_simd.exe
+cl /std:c11 /W4 /O2 /Iinclude src\movie_loader.c src\movie_search.c src\simd_support.c src\dot_simd_x64.obj src\main.c /Fe:tests\movie_search.exe
+
+tests\test_simd_support.exe
+tests\test_simd.exe
+tests\movie_search.exe data\sample_movies.bin 30007 5 both
+```
+
+### Building and Running on Linux / macOS (Clang & Make)
+
+```bash
+make test-simd-support
+make test-simd
+make test
+./tests/movie_search data/sample_movies.bin 30007 5 both
+```
+
 ---
 
 ## 4. Full-Corpus Preparation
