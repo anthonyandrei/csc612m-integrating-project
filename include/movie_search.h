@@ -30,4 +30,16 @@ void normalize_movie(const float* raw, float* normalized, uint32_t dim);
  * @param count    Number of results to sort.
  */
 void sort_movie_results(MovieResult* results, size_t count);
+
+/**
+ * Computes the dot product of two float32 vectors using 256-bit AVX2 registers.
+ * Handles dimensions smaller than 8 and arbitrary leftover components via scalar tail loop.
+ *
+ * @param a    Pointer to first float array (must hold at least dim elements).
+ * @param b    Pointer to second float array (must hold at least dim elements).
+ * @param dim  Number of float elements.
+ * @return     Dot product as a single-precision float in XMM0.
+ */
+float dot_product_simd_ymm(const float* a, const float* b, uint32_t dim);
+
 #endif

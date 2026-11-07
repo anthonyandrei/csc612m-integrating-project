@@ -4,6 +4,10 @@
 /tests/test_loader.exe
 /tests/test_search
 /tests/test_search.exe
+/tests/test_simd
+/tests/test_simd.exe
+/tests/test_simd_support
+/tests/test_simd_support.exe
 /tests/search_check_*/
 *.obj
 /.venv/

@@ -49,3 +49,21 @@ static int compare_results(const void* a, const void* b) {
 void sort_movie_results(MovieResult* results, size_t count) {
     qsort(results, count, sizeof(*results), compare_results);
 }
+
+#if !defined(__x86_64__) && !defined(_M_X64)
+/**
+ * Emulated fallback for non-x86_64 platforms (e.g. ARM64 development hosts).
+ * On x86-64 Windows / Linux, this is overridden by src/dot_simd_x64.asm.
+ */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((weak))
+#endif
+float dot_product_simd_ymm(const float* a, const float* b, uint32_t dim) {
+    if (!a || !b || dim == 0) return 0.0f;
+    float sum = 0.0f;
+    for (uint32_t i = 0; i < dim; i++) {
+        sum += a[i] * b[i];
+    }
+    return sum;
+}
+#endif

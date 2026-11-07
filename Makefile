@@ -18,19 +18,36 @@ else
     endif
 endif
 
-HEADERS = include/movie_contract.h include/movie_loader.h include/movie_search.h
+HEADERS = include/movie_contract.h include/movie_loader.h include/movie_search.h include/simd_support.h
 SRC = src/movie_loader.c
 TEST_SRC = tests/test_loader.c
 TEST_BIN = tests/test_loader
 SEARCH_BIN = tests/movie_search
 SEARCH_TEST_BIN = tests/test_search
+SIMD_SUPPORT_BIN = tests/test_simd_support
+SIMD_TEST_BIN = tests/test_simd
 # Keep the benchmark scalar even when optimization is enabled.
 SCALAR_FLAGS ?= -fno-vectorize -fno-slp-vectorize -ffp-contract=off
 
 VERIFY_SRC = src/verify_corpus.c
 VERIFY_BIN = verify_corpus
 
-.PHONY: all sample-data test test-loader test-search profile-plots \
+# NASM and Assembly Configuration
+ASM ?= nasm
+ifeq ($(OS),Windows_NT)
+    ASM_FORMAT = win64
+    OBJ_EXT = obj
+else
+    UNAME_S := $(shell uname -s)
+    ifeq ($(UNAME_S),Darwin)
+        ASM_FORMAT = macho64
+    else
+        ASM_FORMAT = elf64
+    endif
+    OBJ_EXT = o
+endif
+
+.PHONY: all sample-data test test-loader test-search test-simd-support test-simd profile-plots \
         prepare-full verify-full full-demo clean help
 
 all: $(SEARCH_BIN)
@@ -47,13 +64,22 @@ sample-data:
 test-loader: $(TEST_BIN)
 	./$(TEST_BIN)
 
-test: test-loader test-search
+test: test-loader test-search test-simd-support test-simd
 
 test-search: $(SEARCH_BIN) $(SEARCH_TEST_BIN)
 	./$(SEARCH_TEST_BIN)
 
-$(SEARCH_BIN): $(SRC) src/movie_search.c src/main.c $(HEADERS)
-	$(CC) $(CFLAGS) $(SCALAR_FLAGS) $(SRC) src/movie_search.c src/main.c -o $(SEARCH_BIN) $(LDFLAGS)
+test-simd-support: $(SIMD_SUPPORT_BIN)
+	./$(SIMD_SUPPORT_BIN)
+
+test-simd: $(SIMD_TEST_BIN)
+	./$(SIMD_TEST_BIN)
+
+src/dot_simd_x64.$(OBJ_EXT): src/dot_simd_x64.asm
+	$(ASM) -f $(ASM_FORMAT) src/dot_simd_x64.asm -o $@
+
+$(SEARCH_BIN): $(SRC) src/movie_search.c src/simd_support.c src/main.c $(HEADERS)
+	$(CC) $(CFLAGS) $(SCALAR_FLAGS) $(SRC) src/movie_search.c src/simd_support.c src/main.c -o $(SEARCH_BIN) $(LDFLAGS)
 
 # Rebuild when source OR headers change (addresses review finding #4)
 $(TEST_BIN): $(SRC) $(TEST_SRC) $(HEADERS)
@@ -61,6 +87,12 @@ $(TEST_BIN): $(SRC) $(TEST_SRC) $(HEADERS)
 
 $(SEARCH_TEST_BIN): tests/test_search.c include/movie_contract.h
 	$(CC) $(CFLAGS) tests/test_search.c -o $(SEARCH_TEST_BIN) $(LDFLAGS)
+
+$(SIMD_SUPPORT_BIN): tests/test_simd_support.c src/simd_support.c $(HEADERS)
+	$(CC) $(CFLAGS) tests/test_simd_support.c src/simd_support.c -o $(SIMD_SUPPORT_BIN) $(LDFLAGS)
+
+$(SIMD_TEST_BIN): tests/test_simd.c $(SRC) src/movie_search.c src/simd_support.c $(HEADERS)
+	$(CC) $(CFLAGS) tests/test_simd.c $(SRC) src/movie_search.c src/simd_support.c -o $(SIMD_TEST_BIN) $(LDFLAGS)
 
 # Full-Corpus Additions
 
@@ -85,7 +117,7 @@ full-demo: prepare-full verify-full
 # End of Full-Corpus Additions
 
 clean:
-	rm -f $(TEST_BIN) $(SEARCH_BIN) $(SEARCH_TEST_BIN) $(VERIFY_BIN) $(TEST_BIN).exe $(SEARCH_BIN).exe $(SEARCH_TEST_BIN).exe $(VERIFY_BIN).exe *.o src/*.o tests/*.o data/temp_test_*.bin
+	rm -f $(TEST_BIN) $(SEARCH_BIN) $(SEARCH_TEST_BIN) $(SIMD_TEST_BIN) $(SIMD_SUPPORT_BIN) $(VERIFY_BIN) $(TEST_BIN).exe $(SEARCH_BIN).exe $(SEARCH_TEST_BIN).exe $(SIMD_TEST_BIN).exe $(SIMD_SUPPORT_BIN).exe $(VERIFY_BIN).exe *.o src/*.o tests/*.o data/temp_test_*.bin
 
 help:
 	@echo "Available make targets:"
