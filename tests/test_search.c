@@ -148,6 +148,44 @@ int main(void) {
     CHECK(fclose(file) == 0);
     file = NULL;
 
+    /* Verify SIMD mode execution on known fixture */
+    snprintf(command, sizeof(command), SEARCH_COMMAND " %s 50 5 simd > %s 2>&1", fixture, output);
+    CHECK(system(command) == 0);
+    file = fopen(output, "r");
+    CHECK(file != NULL);
+    CHECK(fgets(line, sizeof(line), file) != NULL && fgets(line, sizeof(line), file) != NULL);
+    for (int i = 0; i < 5; i++) {
+        unsigned long long id;
+        double score;
+        int index = expected[i];
+        CHECK(fgets(line, sizeof(line), file) != NULL);
+        CHECK(sscanf(line, "result\t%llu\t%127[^\t]\t%lf", &id, title, &score) == 3);
+        CHECK(id == ids[index] && strcmp(title, titles[index]) == 0);
+        CHECK(isfinite(score) && fabs(score - reference_score(vectors[0], vectors[index])) <= SCORE_TOLERANCE);
+    }
+    CHECK(fgets(line, sizeof(line), file) == NULL);
+    CHECK(fclose(file) == 0);
+    file = NULL;
+
+    /* Verify dual 'both' mode execution */
+    snprintf(command, sizeof(command), SEARCH_COMMAND " %s 50 5 both > %s 2>&1", fixture, output);
+    CHECK(system(command) == 0);
+    file = fopen(output, "r");
+    CHECK(file != NULL);
+    CHECK(fgets(line, sizeof(line), file) != NULL && fgets(line, sizeof(line), file) != NULL);
+    for (int i = 0; i < 5; i++) {
+        unsigned long long id;
+        double score;
+        int index = expected[i];
+        CHECK(fgets(line, sizeof(line), file) != NULL);
+        CHECK(sscanf(line, "result\t%llu\t%127[^\t]\t%lf", &id, title, &score) == 3);
+        CHECK(id == ids[index] && strcmp(title, titles[index]) == 0);
+        CHECK(isfinite(score) && fabs(score - reference_score(vectors[0], vectors[index])) <= SCORE_TOLERANCE);
+    }
+    CHECK(fgets(line, sizeof(line), file) == NULL);
+    CHECK(fclose(file) == 0);
+    file = NULL;
+
     const char* invalid_args[] = {"50 0", "50 6", "999 1", "50 -1", "50 1x", "50 18446744073709551616"};
     for (size_t i = 0; i < sizeof(invalid_args) / sizeof(invalid_args[0]); i++) {
         snprintf(command, sizeof(command), SEARCH_COMMAND " %s %s > %s 2>&1", fixture, invalid_args[i], output);
