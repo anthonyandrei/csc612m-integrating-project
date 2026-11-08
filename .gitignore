@@ -16,3 +16,17 @@
 __pycache__/
 *.pyc
 *.o
+
+# Visual Studio local settings and build output
+.vs/
+*.vcxproj.user
+*.suo
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+*.pdb
+*.idb
+*.ilk
