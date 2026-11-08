@@ -96,6 +96,57 @@ static void print_title(const char* title) {
     }
 }
 
+/**
+ * Scalar dot product of two float32 vectors, accumulated left to right.
+ * @param a First vector of dim floats.
+ * @param b Second vector of dim floats.
+ * @param dim Number of components.
+ * @return The dot product.
+ */
+static inline float scalar_dot(const float* a, const float* b, uint32_t dim) {
+    float score = 0.0f;
+    for (uint32_t d = 0; d < dim; d++)
+        score += a[d] * b[d];
+    return score;
+}
+
+/**
+ * Normalizes the query, then scores every other movie against it in corpus order.
+ *
+ * Every search mode calls this, so query normalization, query exclusion and
+ * score accumulation cannot drift apart between the scalar, SIMD and
+ * partitioned paths. Only the dot product differs, chosen by use_simd.
+ * @param corpus Loaded corpus.
+ * @param query Corpus index of the query movie, which is skipped.
+ * @param normalized_vectors Normalized candidate vectors, num_movies * vector_dim floats.
+ * @param normalized_query Scratch buffer for the normalized query, vector_dim floats.
+ * @param results Receives one MovieResult per candidate; room for num_movies - 1.
+ * @param use_simd Nonzero to score with the AVX2 kernel, zero for the scalar loop.
+ * @return Number of candidates written, num_movies - 1.
+ */
+static size_t score_candidates(const MovieCorpus* corpus, uint32_t query,
+                               const float* normalized_vectors, float* normalized_query,
+                               MovieResult* results, int use_simd) {
+    uint32_t dim = corpus->vector_dim;
+    normalize_movie(corpus->vectors + (size_t)query * dim, normalized_query, dim);
+    size_t count = 0;
+    for (uint32_t i = 0; i < corpus->num_movies; i++) {
+        if (i == query)
+            continue;
+        const float* candidate = normalized_vectors + (size_t)i * dim;
+        results[count].id = corpus->wiki_ids[i];
+        results[count].index = i;
+        float score;
+        if (use_simd)
+            score = dot_product_simd_ymm(normalized_query, candidate, dim);
+        else
+            score = scalar_dot(normalized_query, candidate, dim);
+        results[count].score = score;
+        count++;
+    }
+    return count;
+}
+
 enum SearchMode {
     MODE_SCALAR = 0,
     MODE_SIMD = 1,
@@ -238,20 +289,8 @@ int main(int argc, char** argv) {
     if (mode == MODE_SCALAR || mode == MODE_BOTH) {
         for (int run = -1; run < RUNS; run++) {
             double run_start = get_time_ms();
-            const float* query_vector = corpus->vectors + (size_t)query * vector_dim;
-            normalize_movie(query_vector, normalized_query, vector_dim);
-            size_t count = 0;
-            for (uint32_t i = 0; i < corpus->num_movies; i++) {
-                if (i == query)
-                    continue;
-                float score = 0.0f;
-                for (size_t d = 0; d < vector_dim; d++) {
-                    score += normalized_query[d] * normalized_vectors[(size_t)i * vector_dim + d];
-                }
-                results[count].id = corpus->wiki_ids[i];
-                results[count].index = i;
-                results[count++].score = score;
-            }
+            size_t count = score_candidates(corpus, query, normalized_vectors,
+                                            normalized_query, results, 0);
             sort_movie_results(results, count);
             double run_end = get_time_ms();
             if (run >= 0)
@@ -265,21 +304,8 @@ int main(int argc, char** argv) {
     if (mode == MODE_SIMD || mode == MODE_BOTH) {
         for (int run = -1; run < RUNS; run++) {
             double run_start = get_time_ms();
-            const float* query_vector = corpus->vectors + (size_t)query * vector_dim;
-            normalize_movie(query_vector, normalized_query, vector_dim);
-            size_t count = 0;
-            for (uint32_t i = 0; i < corpus->num_movies; i++) {
-                if (i == query)
-                    continue;
-                float score = dot_product_simd_ymm(
-                    normalized_query,
-                    normalized_vectors + (size_t)i * vector_dim,
-                    vector_dim
-                );
-                results[count].id = corpus->wiki_ids[i];
-                results[count].index = i;
-                results[count++].score = score;
-            }
+            size_t count = score_candidates(corpus, query, normalized_vectors,
+                                            normalized_query, results, 1);
             sort_movie_results(results, count);
             double run_end = get_time_ms();
             if (run >= 0)
@@ -296,20 +322,8 @@ int main(int argc, char** argv) {
         size_t selected = 0;
         for (int run = -1; run < RUNS; run++) {
             double run_start = get_time_ms();
-            const float* query_vector = corpus->vectors + (size_t)query * vector_dim;
-            normalize_movie(query_vector, normalized_query, vector_dim);
-            size_t count = 0;
-            for (uint32_t i = 0; i < corpus->num_movies; i++) {
-                if (i == query)
-                    continue;
-                float score = 0.0f;
-                for (size_t d = 0; d < vector_dim; d++) {
-                    score += normalized_query[d] * normalized_vectors[(size_t)i * vector_dim + d];
-                }
-                results[count].id = corpus->wiki_ids[i];
-                results[count].index = i;
-                results[count++].score = score;
-            }
+            size_t count = score_candidates(corpus, query, normalized_vectors,
+                                            normalized_query, results, 0);
             size_t num_parts = make_even_partitions(count, (size_t)partition_count, parts);
             selected = select_top_k_partitioned(results, count, parts, num_parts,
                                                 (size_t)k, scratch, topk);
