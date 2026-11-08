@@ -18,6 +18,9 @@
 /** Number of timed searches after the warmup. */
 #define RUNS 30
 
+/** Largest partition count accepted by the partitioned mode. */
+#define MAX_PARTITIONS 4096
+
 /**
  * Portable monotonic time in milliseconds.
  * Uses QueryPerformanceCounter on Windows, clock_gettime on POSIX.
@@ -96,37 +99,55 @@ static void print_title(const char* title) {
 enum SearchMode {
     MODE_SCALAR = 0,
     MODE_SIMD = 1,
-    MODE_BOTH = 2
+    MODE_BOTH = 2,
+    MODE_PARTITIONED = 3
 };
 
 /**
  * Runs a fixed-query benchmark and prints its ordered top-K results.
  *
- * Arguments are the corpus path, query movie ID, K, and optional mode [scalar|simd|both].
+ * Arguments are the corpus path, query movie ID, K, and optional mode
+ * [scalar|simd|both|partitioned]. The partitioned mode accepts one more
+ * optional argument, the partition count (default 4).
  * One warmup precedes RUNS measured searches; loading and printing are excluded
  * from query timing. Candidate normalization is timed separately.
- * @param argc Argument count, including the program name; 4 or 5.
- * @param argv Argument strings: program name, corpus path, query ID, K, and optional mode.
- * @return 0 on success, or 1 for invalid input or an allocation failure.
+ * In partitioned mode, scoring, partitioning, per-partition heap selection and
+ * merging are all inside the timed query, and the result is verified against a
+ * full-sort reference (untimed) before printing.
+ * @param argc Argument count, including the program name; 4 to 6.
+ * @param argv Argument strings: program name, corpus path, query ID, K, optional mode,
+ *             and optional partition count.
+ * @return 0 on success, or 1 for invalid input, an allocation failure, or a
+ *         partitioned-result mismatch.
  */
 int main(int argc, char** argv) {
     uint64_t id, k;
+    uint64_t partition_count = 4;
     MovieCorpus* corpus = NULL;
     enum SearchMode mode = MODE_BOTH;
 
-    if (argc == 5) {
+    if (argc == 5 || argc == 6) {
         if (strcmp(argv[4], "scalar") == 0 || strcmp(argv[4], "--scalar") == 0)
             mode = MODE_SCALAR;
         else if (strcmp(argv[4], "simd") == 0 || strcmp(argv[4], "--simd") == 0)
             mode = MODE_SIMD;
         else if (strcmp(argv[4], "both") == 0 || strcmp(argv[4], "--both") == 0)
             mode = MODE_BOTH;
+        else if (strcmp(argv[4], "partitioned") == 0 || strcmp(argv[4], "--partitioned") == 0)
+            mode = MODE_PARTITIONED;
         else {
-            fprintf(stderr, "Unknown mode: %s (expected scalar, simd, or both)\n", argv[4]);
+            fprintf(stderr, "Unknown mode: %s (expected scalar, simd, both, or partitioned)\n", argv[4]);
+            return 1;
+        }
+        if (argc == 6 && (mode != MODE_PARTITIONED ||
+                          !parse_positive(argv[5], &partition_count) ||
+                          partition_count > MAX_PARTITIONS)) {
+            fprintf(stderr, "Usage: movie_search <corpus.bin> <query-id> <K> partitioned [1..%d partitions]\n",
+                    MAX_PARTITIONS);
             return 1;
         }
     } else if (argc != 4) {
-        fprintf(stderr, "Usage: movie_search <corpus.bin> <query-id> <K> [scalar|simd|both]\n");
+        fprintf(stderr, "Usage: movie_search <corpus.bin> <query-id> <K> [scalar|simd|both|partitioned [partitions]]\n");
         return 1;
     }
 
@@ -168,6 +189,36 @@ int main(int argc, char** argv) {
         free_movie_corpus(corpus);
         return 1;
     }
+
+    /* Extra buffers for the partitioned mode only; free(NULL) is harmless otherwise. */
+    size_t candidates = (size_t)corpus->num_movies - 1;
+    CandidateRange* parts = NULL;
+    MovieResult* topk = NULL;
+    MovieResult* scratch = NULL;
+    MovieResult* work = NULL;
+    MovieResult* expected = NULL;
+    if (mode == MODE_PARTITIONED) {
+        parts = (CandidateRange*)malloc((size_t)partition_count * sizeof(*parts));
+        topk = (MovieResult*)malloc((size_t)k * sizeof(*topk));
+        scratch = (MovieResult*)malloc((size_t)partition_count * (size_t)k * sizeof(*scratch));
+        work = (MovieResult*)malloc(candidates * sizeof(*work));
+        expected = (MovieResult*)malloc((size_t)k * sizeof(*expected));
+        if (!parts || !topk || !scratch || !work || !expected) {
+            fprintf(stderr, "Allocation failed\n");
+            free(parts);
+            free(topk);
+            free(scratch);
+            free(work);
+            free(expected);
+            free(normalized_vectors);
+            free(normalized_query);
+            free(results);
+            free_movie_corpus(corpus);
+            return 1;
+        }
+    }
+    const MovieResult* shown = results;
+
     /* Candidate normalization is a one-time cost outside the query timer. */
     double prep_start = get_time_ms();
     for (uint32_t i = 0; i < corpus->num_movies; i++) {
@@ -180,6 +231,7 @@ int main(int argc, char** argv) {
     double preparation_ms = get_time_ms() - prep_start;
     double scalar_median_ms = 0.0;
     double simd_median_ms = 0.0;
+    double partitioned_median_ms = 0.0;
     double run_times[RUNS];
 
     /* 1. Scalar Scoring Loop (when mode is scalar or both) */
@@ -237,6 +289,58 @@ int main(int argc, char** argv) {
         simd_median_ms = (run_times[RUNS / 2 - 1] + run_times[RUNS / 2]) / 2.0;
     }
 
+    /* 3. Serial partitioned top-K with scalar scoring (when mode is partitioned).
+     * Scoring, partitioning, per-partition heap selection and merging are all
+     * inside the timed region. */
+    if (mode == MODE_PARTITIONED) {
+        size_t selected = 0;
+        for (int run = -1; run < RUNS; run++) {
+            double run_start = get_time_ms();
+            const float* query_vector = corpus->vectors + (size_t)query * vector_dim;
+            normalize_movie(query_vector, normalized_query, vector_dim);
+            size_t count = 0;
+            for (uint32_t i = 0; i < corpus->num_movies; i++) {
+                if (i == query)
+                    continue;
+                float score = 0.0f;
+                for (size_t d = 0; d < vector_dim; d++) {
+                    score += normalized_query[d] * normalized_vectors[(size_t)i * vector_dim + d];
+                }
+                results[count].id = corpus->wiki_ids[i];
+                results[count].index = i;
+                results[count++].score = score;
+            }
+            size_t num_parts = make_even_partitions(count, (size_t)partition_count, parts);
+            selected = select_top_k_partitioned(results, count, parts, num_parts,
+                                                (size_t)k, scratch, topk);
+            double run_end = get_time_ms();
+            if (run >= 0)
+                run_times[run] = run_end - run_start;
+        }
+        qsort(run_times, RUNS, sizeof(double), compare_double);
+        partitioned_median_ms = (run_times[RUNS / 2 - 1] + run_times[RUNS / 2]) / 2.0;
+
+        /* Untimed check against the full-sort reference on the same score array. */
+        size_t want = select_top_k_reference(results, candidates, (size_t)k, work, expected);
+        int ok = (selected == want);
+        for (size_t i = 0; ok && i < want; i++)
+            ok = (topk[i].id == expected[i].id && topk[i].score == expected[i].score);
+        if (!ok) {
+            fprintf(stderr, "Partitioned result differs from full-sort reference\n");
+            free(parts);
+            free(topk);
+            free(scratch);
+            free(work);
+            free(expected);
+            free(normalized_vectors);
+            free(normalized_query);
+            free(results);
+            free_movie_corpus(corpus);
+            return 1;
+        }
+        shown = topk;
+    }
+
     printf("movies=%u dimension=%u query=%" PRIu64 " K=%" PRIu64 " runs=%d warmups=1\n",
            corpus->num_movies, corpus->vector_dim, id, k, RUNS);
 
@@ -246,6 +350,9 @@ int main(int argc, char** argv) {
     } else if (mode == MODE_SIMD) {
         printf("candidate_normalization_ms=%.6f query_median_ms=%.6f\n",
                preparation_ms, simd_median_ms);
+    } else if (mode == MODE_PARTITIONED) {
+        printf("candidate_normalization_ms=%.6f query_median_ms=%.6f partitions=%" PRIu64 " verify=ok\n",
+               preparation_ms, partitioned_median_ms, partition_count);
     } else {
         printf("candidate_normalization_ms=%.6f query_median_ms=%.6f scalar_median_ms=%.6f simd_median_ms=%.6f",
                preparation_ms, simd_median_ms, scalar_median_ms, simd_median_ms);
@@ -256,11 +363,16 @@ int main(int argc, char** argv) {
     }
 
     for (size_t i = 0; i < (size_t)k; i++) {
-        printf("result\t%" PRIu64 "\t", results[i].id);
-        const char* title = corpus->titles[results[i].index];
+        printf("result\t%" PRIu64 "\t", shown[i].id);
+        const char* title = corpus->titles[shown[i].index];
         print_title(title);
-        printf("\t%.9g\n", results[i].score);
+        printf("\t%.9g\n", shown[i].score);
     }
+    free(parts);
+    free(topk);
+    free(scratch);
+    free(work);
+    free(expected);
     free(normalized_vectors);
     free(normalized_query);
     free(results);

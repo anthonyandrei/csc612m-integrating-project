@@ -116,15 +116,17 @@ MSVC 19.44.35229 reports that it ignores `/Qvec-`. The MSVC command has not been
 The executable prints the movie count, dimension, query ID, K, one warmup, 30 measured runs, candidate normalization time, and median query time in milliseconds. Candidate normalization is a one-time measurement. Each query includes normalization of the original query vector, scoring every other movie, and full sorting; loading and printing are outside the query timer. Record the CPU, operating system, compiler version, build command, and input file with any reported timings. Keep the input and query fixed across repetitions.
 
 The public `sort_movie_results` function preserves full-sort ranking for later comparisons using the same scores. The search checks generate a small MVE1 corpus, run the executable, and compare scores against cosine similarity computed independently in double precision. The absolute tolerance is `1e-5` for these three-dimensional inputs; it is not a proven error bound for arbitrary dimensions. The checks cover query exclusion, result IDs and titles, descending ranking, exact ties, invalid K and query IDs, invalid vectors and metadata, and large finite components. A failed check returns a nonzero exit status. Run them from the repository root with `make test-search` or the MSVC commands above.
+
 ## Single-thread SIMD scoring (Issue #5)
 
 The search engine includes a single-thread 256-bit AVX2 SIMD dot-product scorer implemented in x64 NASM assembly (`src/dot_simd_x64.asm`) without C intrinsics. It operates over the same C-normalized candidate vectors, preserving identical ranking order, query exclusion, and tie-breaking by ascending Wikipedia ID.
 
 ### Features & Verification
+
 - **Target Vector Diagnostics**: Verifies CPUID (Leaf 1 `AVX`/`OSXSAVE`, Leaf 7 `AVX2`) and operating-system 256-bit YMM state preservation via `XGETBV` (or `IsProcessorFeaturePresent` on Windows).
 - **Vector & Remainder Processing**: Unrolls 8 single-precision floats (256 bits) per AVX2 loop iteration, reduces across 256 bits horizontally (`vextractf128` + `vhaddps`), and handles arbitrary vector lengths and leftovers ($dim \pmod 8 \neq 0$) with a scalar tail loop.
 - **Numerical Reference**: Scores agree with an independent double-precision reference within $10^{-5}$ tolerance.
-- **Execution Modes**: The executable accepts an optional 4th argument: `scalar`, `simd`, or `both` (default is `both` for side-by-side benchmark timing).
+- **Execution Modes**: The executable accepts an optional 4th argument: `scalar`, `simd`, `both` (default, side-by-side benchmark timing), or `partitioned` (see below).
 
 ### Building and Running on Windows x64 (MSVC & NASM)
 
@@ -148,6 +150,54 @@ make test-simd-support
 make test-simd
 make test
 ./tests/movie_search data/sample_movies.bin 30007 5 both
+```
+
+## Serial partitioned top-K search
+
+This step proves the selection structure that later multicore integration will use, without threads. Candidates (the corpus minus the query) are split into contiguous partitions, which may be uneven or empty. Each partition is processed serially into its own K-bounded heap, then the retained results are merged and sorted into the final K matches.
+
+### Ranking policy
+
+All paths share one comparator: descending float32 score, then ascending Wikipedia ID for exact ties. K follows the scalar search policy (1 through N-1). The scalar scorer is used, so this step does not depend on the SIMD scorer. OpenMP and SIMD normalization are out of scope.
+
+### Verification
+
+- `make test-partition` compares the partitioned result against a full-sort reference on identical score arrays. It covers equal scores, uneven and empty partitions, partitions with fewer than K candidates, K larger than the candidate count, partition coverage with no omissions or duplicates, and query exclusion. A mismatch returns a nonzero exit status.
+- `make test` includes this check.
+- The demo re-checks every run against the full-sort reference and exits nonzero on a mismatch.
+
+### Running the demo
+
+```bash
+make
+./tests/movie_search data/sample_movies.bin 30007 5 partitioned      # 4 partitions (default)
+./tests/movie_search data/sample_movies.bin 30007 5 partitioned 16   # 16 partitions (1..4096)
+```
+
+The partition count must be an integer from 1 through 4096; anything else prints a usage error and exits with status 1. A successful run adds `partitions=<n> verify=ok` to the timing line, followed by the usual tab-separated result lines, which are identical to `scalar` mode:
+
+```text
+movies=16 dimension=384 query=30007 K=5 runs=30 warmups=1
+candidate_normalization_ms=0.020600 query_median_ms=0.006000 partitions=4 verify=ok
+result  23270459  Inception  0.417729497
+result  2466773   The Godfather  0.353045642
+...
+```
+
+Query timing includes scalar scoring, partitioning, per-partition heap selection, and merging. Candidate normalization is still reported separately, and the verification and printing are outside the timer. Timings on the 16-movie sample only confirm that the path runs; they are not performance results.
+
+### Make build notes
+
+- `make` builds `tests/movie_search` (`tests/movie_search.exe` on Windows). On x86-64 hosts it links the NASM object `src/dot_simd_x64.o` (`.obj` on Windows), so `nasm` must be on `PATH`; other hosts use the C fallback in `src/movie_search.c`.
+- The scalar-only flags depend on the compiler: `-fno-vectorize -fno-slp-vectorize` for clang and `-fno-tree-vectorize -fno-tree-slp-vectorize` for gcc. Override with `SCALAR_FLAGS=...`.
+- With MSVC-target clang (the Visual Studio one), `-lm` is omitted automatically because the math functions are part of the CRT. Override with `LDFLAGS=...`.
+- Use the clang build for benchmark timings, as described in the scalar baseline section.
+
+On Windows with MSVC:
+
+```cmd
+cl /std:c11 /W4 /O2 /Iinclude src\movie_search.c tests\test_partition.c /Fe:tests\test_partition.exe
+tests\test_partition.exe
 ```
 
 ---
