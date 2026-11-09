@@ -70,6 +70,14 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <IntDir>$(ProjectDir)build\vs\$(Platform)\$(Configuration)\</IntDir>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(ProjectDir)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+  </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
@@ -126,13 +134,15 @@
     <ClCompile Include="src\main.c" />
     <ClCompile Include="src\movie_loader.c" />
     <ClCompile Include="src\movie_search.c" />
-    <ClCompile Include="src\verify_corpus.c" />
+    <ClCompile Include="src\simd_support.c" />
+    <ClCompile Include="src\verify_corpus.c"><ExcludedFromBuild>true</ExcludedFromBuild></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="src\dot_simd_x64.asm">
-      <FileType>Document</FileType>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ExcludedFromBuild>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">nasm -f win64 asmfunc.asm</Command>
+      <ExcludedFromBuild Condition="'$(Platform)'!='x64'">true</ExcludedFromBuild>
+      <Command>nasm -f win64 "%(FullPath)" -o "$(IntDir)dot_simd_x64.obj"</Command>
+      <Outputs>$(IntDir)dot_simd_x64.obj</Outputs>
+      <LinkObjects>true</LinkObjects>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>
