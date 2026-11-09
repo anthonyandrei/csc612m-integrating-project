@@ -4,9 +4,9 @@ Integrating project for **CSC612M (Advanced Computer Architecture)**, 1st Term S
 
 ## Proposal
 
-- **Document**: [Proposal Document](docs/proposal-doc.pdf)
-- **Video**: [Proposal Pitch Video](https://drive.google.com/file/d/1ja09MC404rA_IRstCRpHqdqC-wjBU5wy/view?usp=sharing)
-
+- **Document**: [Link](docs/proposal-doc.pdf)
+- **Project Proposal Video**: [Link](https://drive.google.com/file/d/1ja09MC404rA_IRstCRpHqdqC-wjBU5wy/view?usp=sharing)
+- **Project Mid-Milestone Update**: [Link](https://drive.google.com/file/d/12p9rj7fIBnkOU6R-_yARsYb9zws33eut/view?usp=sharing)
 ---
 
 ## Movie-Vector Pipeline & Setup Instructions
