@@ -2,9 +2,12 @@
 #include <stdio.h>
 #include <string.h>
 
+#if defined(_WIN32)
+    #include <windows.h>
+#endif
+
 #if defined(_MSC_VER)
     #include <intrin.h>
-    #include <windows.h>
 #elif defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
     #include <cpuid.h>
 #endif

@@ -8,6 +8,7 @@
 /tests/test_simd.exe
 /tests/test_simd_support
 /tests/test_simd_support.exe
+/tests/test_partition.exe
 /tests/search_check_*/
 *.obj
 /.venv/
