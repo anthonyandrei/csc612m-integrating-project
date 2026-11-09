@@ -50,11 +50,11 @@ static double get_time_ms(void) {
  * @return A negative, zero, or positive value according to their order.
  */
 static int compare_double(const void* a, const void* b) {
-    double x = *(const double*)a;
-    double y = *(const double*)b;
-    if (x < y)
+    double first = *(const double*)a;
+    double second = *(const double*)b;
+    if (first < second)
         return -1;
-    if (x > y)
+    if (first > second)
         return 1;
     return 0;
 }
@@ -70,10 +70,10 @@ static int parse_positive(const char* text, uint64_t* value) {
     if (*text < '0' || *text > '9')
         return 0;
     errno = 0;
-    unsigned long long n = strtoull(text, &end, 10);
-    if (errno || *end || n == 0)
+    unsigned long long parsed = strtoull(text, &end, 10);
+    if (errno || *end || parsed == 0)
         return 0;
-    *value = (uint64_t)n;
+    *value = (uint64_t)parsed;
     return 1;
 }
 
@@ -127,20 +127,21 @@ static inline float scalar_dot(const float* a, const float* b, uint32_t dim) {
 static size_t score_candidates(const MovieCorpus* corpus, uint32_t query,
                                const float* normalized_vectors, float* normalized_query,
                                MovieResult* results, int use_simd) {
-    uint32_t dim = corpus->vector_dim;
-    normalize_movie(corpus->vectors + (size_t)query * dim, normalized_query, dim);
+    uint32_t vector_dim = corpus->vector_dim;
+    const float* query_vector = corpus->vectors + (size_t)query * vector_dim;
+    normalize_movie(query_vector, normalized_query, vector_dim);
     size_t count = 0;
     for (uint32_t i = 0; i < corpus->num_movies; i++) {
         if (i == query)
             continue;
-        const float* candidate = normalized_vectors + (size_t)i * dim;
+        const float* candidate = normalized_vectors + (size_t)i * vector_dim;
         results[count].id = corpus->wiki_ids[i];
         results[count].index = i;
         float score;
         if (use_simd)
-            score = dot_product_simd_ymm(normalized_query, candidate, dim);
+            score = dot_product_simd_ymm(normalized_query, candidate, vector_dim);
         else
-            score = scalar_dot(normalized_query, candidate, dim);
+            score = scalar_dot(normalized_query, candidate, vector_dim);
         results[count].score = score;
         count++;
     }
@@ -178,15 +179,15 @@ int main(int argc, char** argv) {
     enum SearchMode mode = MODE_BOTH;
 
     if (argc == 5 || argc == 6) {
-        if (strcmp(argv[4], "scalar") == 0 || strcmp(argv[4], "--scalar") == 0)
+        if (strcmp(argv[4], "scalar") == 0 || strcmp(argv[4], "--scalar") == 0) {
             mode = MODE_SCALAR;
-        else if (strcmp(argv[4], "simd") == 0 || strcmp(argv[4], "--simd") == 0)
+        } else if (strcmp(argv[4], "simd") == 0 || strcmp(argv[4], "--simd") == 0) {
             mode = MODE_SIMD;
-        else if (strcmp(argv[4], "both") == 0 || strcmp(argv[4], "--both") == 0)
+        } else if (strcmp(argv[4], "both") == 0 || strcmp(argv[4], "--both") == 0) {
             mode = MODE_BOTH;
-        else if (strcmp(argv[4], "partitioned") == 0 || strcmp(argv[4], "--partitioned") == 0)
+        } else if (strcmp(argv[4], "partitioned") == 0 || strcmp(argv[4], "--partitioned") == 0) {
             mode = MODE_PARTITIONED;
-        else {
+        } else {
             fprintf(stderr, "Unknown mode: %s (expected scalar, simd, both, or partitioned)\n", argv[4]);
             return 1;
         }
@@ -271,7 +272,7 @@ int main(int argc, char** argv) {
     const MovieResult* shown = results;
 
     /* Candidate normalization is a one-time cost outside the query timer. */
-    double prep_start = get_time_ms();
+    double preparation_start = get_time_ms();
     for (uint32_t i = 0; i < corpus->num_movies; i++) {
         if (i != query) {
             const float* original_vector = corpus->vectors + (size_t)i * vector_dim;
@@ -279,7 +280,7 @@ int main(int argc, char** argv) {
             normalize_movie(original_vector, normalized_vector, vector_dim);
         }
     }
-    double preparation_ms = get_time_ms() - prep_start;
+    double preparation_ms = get_time_ms() - preparation_start;
     double scalar_median_ms = 0.0;
     double simd_median_ms = 0.0;
     double partitioned_median_ms = 0.0;
@@ -335,11 +336,11 @@ int main(int argc, char** argv) {
         partitioned_median_ms = (run_times[RUNS / 2 - 1] + run_times[RUNS / 2]) / 2.0;
 
         /* Untimed check against the full-sort reference on the same score array. */
-        size_t want = select_top_k_reference(results, candidates, (size_t)k, work, expected);
-        int ok = (selected == want);
-        for (size_t i = 0; ok && i < want; i++)
-            ok = (topk[i].id == expected[i].id && topk[i].score == expected[i].score);
-        if (!ok) {
+        size_t expected_count = select_top_k_reference(results, candidates, (size_t)k, work, expected);
+        int results_match = (selected == expected_count);
+        for (size_t i = 0; results_match && i < expected_count; i++)
+            results_match = (topk[i].id == expected[i].id && topk[i].score == expected[i].score);
+        if (!results_match) {
             fprintf(stderr, "Partitioned result differs from full-sort reference\n");
             free(parts);
             free(topk);
