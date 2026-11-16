@@ -2,7 +2,7 @@
 
 Integrating project for **CSC612M (Advanced Computer Architecture)**, 1st Term SY 2026-2027, De La Salle University.
 
-## Proposal
+## Documents/Videos
 
 - **Document**: [Link](docs/proposal-doc.pdf)
 - **Project Proposal Video**: [Link](https://drive.google.com/file/d/1ja09MC404rA_IRstCRpHqdqC-wjBU5wy/view?usp=sharing)
